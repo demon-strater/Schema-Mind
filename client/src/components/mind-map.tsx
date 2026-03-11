@@ -268,11 +268,31 @@ export function MindMap({
     handleReset();
   }, [focusNodeId, allNodes.length]);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 1.08 : 0.92;
-    handleZoom(factor);
-  }, [handleZoom]);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.08 : 0.92;
+        handleZoom(factor);
+      } else {
+        e.preventDefault();
+        const svgEl = el.querySelector("svg");
+        if (!svgEl) return;
+        const rect = svgEl.getBoundingClientRect();
+        const scaleY = viewBox.h / rect.height;
+        const scaleX = viewBox.w / rect.width;
+        setViewBox((v) => ({
+          ...v,
+          x: v.x + (e.deltaX * scaleX),
+          y: v.y + (e.deltaY * scaleY),
+        }));
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [handleZoom, viewBox]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as SVGElement).closest("[data-map-node]")) return;
@@ -350,7 +370,6 @@ export function MindMap({
         height="100%"
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
         className={`select-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
-        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
