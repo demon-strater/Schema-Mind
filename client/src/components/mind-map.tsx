@@ -661,7 +661,7 @@ export function MindMap({
 
         <g data-map-node="center" className="cursor-pointer" onClick={onAddNode}>
           <foreignObject x="-75" y="-30" width="150" height="60" style={{ pointerEvents: "auto", overflow: "visible" }}>
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-500/70 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/20 hover:border-violet-400 hover:shadow-violet-500/30 transition-all" style={{ height: 60 }}>
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-400 dark:border-violet-300 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/25 hover:border-violet-300 hover:shadow-violet-500/35 transition-all" style={{ height: 60 }}>
               <span className="text-sm font-bold text-foreground tracking-tight">{centerLabel}</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">{centerSublabel}</span>
             </div>
@@ -723,10 +723,10 @@ export function MindMap({
                 <div
                   className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-center leading-tight transition-all duration-200 ${
                     isArticle
-                      ? "border-2 border-violet-500/50 bg-gradient-to-br from-violet-500/10 to-violet-600/5 shadow-md shadow-violet-500/10 hover:shadow-violet-500/20 hover:border-violet-400/70 cursor-pointer"
+                      ? "border-2 border-violet-400 dark:border-violet-400 bg-gradient-to-br from-violet-500/15 to-violet-600/10 shadow-md shadow-violet-500/15 hover:shadow-violet-500/25 hover:border-violet-300 cursor-pointer"
                       : isCategory
-                        ? "border border-border/60 bg-card/90 backdrop-blur-sm shadow-sm hover:shadow-md"
-                        : "border border-border/40 bg-card/80 backdrop-blur-sm shadow-sm hover:shadow-md"
+                        ? "border-2 border-violet-500/70 dark:border-violet-400/60 bg-card/95 backdrop-blur-sm shadow-sm hover:shadow-md"
+                        : "border border-violet-400/50 dark:border-violet-300/40 bg-card/90 backdrop-blur-sm shadow-sm hover:shadow-md"
                   } ${isDragging ? "ring-2 ring-primary/40 scale-105" : ""} ${
                     isSelected ? "ring-2 ring-primary/60" : ""
                   } ${isHovered && !isDragging ? "scale-[1.03]" : ""}`}
