@@ -30,20 +30,13 @@ const analysisResultSchema = z.object({
   })).default([]),
 });
 
-const TIER_TO_LEVEL: Record<string, number> = {
-  wisdom: 2,
-  knowledge: 3,
-  information: 4,
-  data: 5,
-};
-
 export async function analyzeText(text: string): Promise<{ createdNodes: number; subjectTitle: string; category: string; subjectId: number }> {
   const allNodes = await storage.getAllNodes();
   const categoryNodes = allNodes.filter((n) => n.level === 1 && n.parentId === null);
 
   const prompt = `You are a knowledge architect. Analyze the following text and:
 
-1. Determine which ONE of these 9 categories it belongs to:
+1. Determine which ONE of these 9 categories it belongs to (you MUST pick one):
 ${categoryNames.map((name, i) => `   ${i + 1}. ${name}`).join("\n")}
 
 2. Create a concise article title (제목) that summarizes the text.
@@ -58,7 +51,7 @@ ${categoryNames.map((name, i) => `   ${i + 1}. ${name}`).join("\n")}
 
 Return ONLY valid JSON:
 {
-  "category": "exact category name from the 9 options above",
+  "category": "EXACT category name from the list above - must be one of: ${categoryNames.join(", ")}",
   "articleTitle": "concise title for this text",
   "articleDescription": "one-line summary",
   "items": [
@@ -74,9 +67,10 @@ Return ONLY valid JSON:
   ]
 }
 
-IMPORTANT: "category" must be EXACTLY one of: ${categoryNames.join(", ")}
-
-Aim for 3-8 items distributed across tiers.
+CRITICAL RULES:
+- "category" MUST be exactly one of: ${categoryNames.join(", ")}
+- Do NOT invent new categories. Choose the closest match.
+- Aim for 4-8 items distributed across all 4 tiers.
 
 TEXT TO ANALYZE:
 ${text}`;
@@ -100,9 +94,7 @@ ${text}`;
 
   const result = analysisResultSchema.parse(parsed);
 
-  let categoryNode = categoryNodes.find(
-    (n) => n.title === result.category
-  );
+  let categoryNode = categoryNodes.find((n) => n.title === result.category);
   if (!categoryNode) {
     categoryNode = categoryNodes.find(
       (n) => result.category.includes(n.title) || n.title.includes(result.category)
@@ -126,7 +118,6 @@ ${text}`;
   const createdNodeMap = new Map<string, number>();
   createdNodeMap.set(result.articleTitle, articleNode.id);
 
-  const tiers = ["wisdom", "knowledge", "information", "data"] as const;
   const tierLabels: Record<string, string> = {
     wisdom: "💡 지혜",
     knowledge: "📖 지식",
@@ -134,23 +125,22 @@ ${text}`;
     data: "📊 데이터",
   };
 
+  const tierOrder = ["wisdom", "knowledge", "information", "data"] as const;
   let sortOrder = 0;
 
-  for (const tier of tiers) {
+  for (const tier of tierOrder) {
     const tierItems = result.items.filter((item) => item.tier === tier);
     if (tierItems.length === 0) continue;
-
-    const level = TIER_TO_LEVEL[tier] + 1;
 
     for (const item of tierItems) {
       const node = await storage.createNode({
         parentId: articleNode.id,
-        level,
+        level: 3,
         title: `${tierLabels[tier]} ${item.title}`,
         description: item.description,
         content: item.content || null,
-        color: LEVEL_COLORS[Math.min(level, 7)],
-        icon: LEVEL_ICONS[Math.min(level, 7)],
+        color: LEVEL_COLORS[3],
+        icon: LEVEL_ICONS[3],
         sortOrder: sortOrder++,
       });
       createdNodeMap.set(item.title, node.id);
