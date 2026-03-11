@@ -294,12 +294,42 @@ export function MindMap({
     return () => el.removeEventListener("wheel", onWheel);
   }, [handleZoom, viewBox]);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if ((e.target as SVGElement).closest("[data-map-node]")) return;
-    setIsPanning(true);
-    setPanStart({ x: e.clientX, y: e.clientY });
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        setSpaceHeld(false);
+        setIsPanning(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, []);
+
+  const canPan = useCallback((e: React.PointerEvent) => {
+    return spaceHeld || e.ctrlKey || e.metaKey;
+  }, [spaceHeld]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (canPan(e)) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    }
+  }, [canPan]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isPanning) return;
@@ -369,7 +399,7 @@ export function MindMap({
         width="100%"
         height="100%"
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-        className={`select-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
+        className={`select-none ${isPanning ? "cursor-grabbing" : spaceHeld ? "cursor-grab" : "cursor-default"}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
