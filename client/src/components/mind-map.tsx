@@ -192,7 +192,7 @@ function CurvedLink({
         strokeWidth={1}
         strokeDasharray="4 4"
         fill="none"
-        opacity={opacity * 0.4}
+        opacity={opacity * 0.7}
         className="transition-opacity duration-300"
       />
     );
@@ -209,7 +209,7 @@ function CurvedLink({
     <path
       d={`M ${x1} ${y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${x2} ${y2}`}
       stroke={color}
-      strokeWidth={1.5}
+      strokeWidth={1.8}
       fill="none"
       opacity={opacity}
       className="transition-opacity duration-300"
@@ -734,7 +734,7 @@ export function MindMap({
             fill="none"
             stroke="hsl(var(--border))"
             strokeWidth="0.5"
-            opacity="0.2"
+            opacity="0.3"
             strokeDasharray="3 8"
           />
         ))}
@@ -753,7 +753,7 @@ export function MindMap({
               x2={tgtPos.x}
               y2={tgtPos.y}
               color="#6366F1"
-              opacity={0.4}
+              opacity={0.65}
               isConnection
             />
           );
@@ -776,16 +776,16 @@ export function MindMap({
               x2={childPos.x}
               y2={childPos.y}
               color={edge.color}
-              opacity={0.35}
+              opacity={0.6}
             />
           );
         })}
 
         <g data-map-node="center" className="cursor-pointer" onClick={onAddNode}>
-          <foreignObject x="-75" y="-30" width="150" height="60" style={{ pointerEvents: "auto", overflow: "visible" }}>
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-400 dark:border-violet-300 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/25 hover:border-violet-300 hover:shadow-violet-500/35 transition-all" style={{ height: 60 }}>
-              <span className="text-sm font-bold text-foreground tracking-tight">{centerLabel}</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5">{centerSublabel}</span>
+          <foreignObject x="-85" y="-35" width="170" height="70" style={{ pointerEvents: "auto", overflow: "visible" }}>
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-400 dark:border-violet-300 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/25 hover:border-violet-300 hover:shadow-violet-500/35 transition-all" style={{ height: 70 }}>
+              <span className="text-base font-bold text-foreground tracking-tight">{centerLabel}</span>
+              <span className="text-xs text-muted-foreground mt-0.5">{centerSublabel}</span>
             </div>
           </foreignObject>
         </g>
@@ -800,12 +800,12 @@ export function MindMap({
           const hasChildren = children.length > 0;
           const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
           const depth = pn.node.level;
-          const fontSize = Math.max(10 - depth, 7);
+          const fontSize = Math.max(14 - depth, 11);
           const isArticle = pn.node.level === 2 && !!pn.node.content;
           const isCategory = pn.node.level === 1;
 
-          const boxW = isArticle ? 170 : isCategory ? 120 : 140;
-          const boxH = isArticle ? 48 : isCategory ? 38 : 36;
+          const boxW = isArticle ? 210 : isCategory ? 150 : 170;
+          const boxH = isArticle ? 56 : isCategory ? 44 : 42;
           const bx = pos.x - boxW / 2;
           const by = pos.y - boxH / 2;
 
@@ -860,21 +860,21 @@ export function MindMap({
                   data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
                 >
                   {isArticle && (
-                    <FileText style={{ width: 12, height: 12, flexShrink: 0 }} className="text-violet-400" />
+                    <FileText style={{ width: 16, height: 16, flexShrink: 0 }} className="text-violet-400" />
                   )}
                   <span
                     className={`font-semibold leading-tight line-clamp-2 ${
-                      isArticle ? "text-violet-300 dark:text-violet-300" 
+                      isArticle ? "text-violet-200 dark:text-violet-200" 
                       : isCategory ? "text-foreground" 
-                      : "text-foreground/80"
+                      : "text-foreground"
                     }`}
-                    style={{ fontSize: isArticle ? 9 : isCategory ? 11 : fontSize }}
+                    style={{ fontSize: isArticle ? 12 : isCategory ? 14 : fontSize }}
                   >
                     {displayTitle}
                   </span>
                 </div>
                 {(isHovered || isSelected) && !isDragging && (
-                  <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 6) }}>
+                  <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 1, 10) }}>
                     <span className="text-muted-foreground font-mono">
                       {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
                     </span>
