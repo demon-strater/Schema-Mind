@@ -12,6 +12,7 @@ import { MindMap } from "@/components/mind-map";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Sparkles, Network, Zap, LayoutGrid, GitBranch, Home as HomeIcon, ChevronRight } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type ViewMode = "mindmap" | "grid";
 
@@ -164,6 +165,8 @@ export default function Home() {
             <Sparkles className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">AI 분석</span>
           </button>
+
+          <ThemeToggle />
         </div>
 
         <div className="fixed bottom-4 left-4 z-20" data-testid="floating-stats">
@@ -265,6 +268,7 @@ export default function Home() {
                 <Sparkles className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">AI 분석</span>
               </button>
+              <ThemeToggle />
               <div className="hidden sm:flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                   <Zap className="w-3.5 h-3.5 text-primary" />

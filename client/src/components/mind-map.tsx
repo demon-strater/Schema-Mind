@@ -32,6 +32,14 @@ const NODE_COLORS: Record<number, string> = {
   7: "#4338CA",
 };
 
+const TIER_ICONS: Record<number, string> = {
+  2: "📄",
+  3: "💡",
+  4: "📖",
+  5: "ℹ️",
+  6: "📊",
+};
+
 function buildTree(
   allNodes: KnowledgeNode[],
   focusNodeId: number | null
@@ -134,7 +142,6 @@ function layoutRadialTree(
   return positioned;
 }
 
-
 function CurvedLink({
   x1, y1, x2, y2, color, opacity, isConnection
 }: {
@@ -152,21 +159,27 @@ function CurvedLink({
       <path
         d={`M ${x1} ${y1} Q ${midX + perpX} ${midY + perpY} ${x2} ${y2}`}
         stroke={color}
-        strokeWidth={1.5}
-        strokeDasharray="6 4"
+        strokeWidth={1}
+        strokeDasharray="4 4"
         fill="none"
-        opacity={opacity * 0.5}
+        opacity={opacity * 0.4}
         className="transition-opacity duration-300"
       />
     );
   }
 
   const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const cx1 = x1 + dx * 0.3;
+  const cy1 = y1;
+  const cx2 = x1 + dx * 0.7;
+  const cy2 = y2;
   return (
     <path
-      d={`M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1} ${x1 + dx * 0.6} ${y2} ${x2} ${y2}`}
+      d={`M ${x1} ${y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${x2} ${y2}`}
       stroke={color}
-      strokeWidth={2}
+      strokeWidth={1.5}
       fill="none"
       opacity={opacity}
       className="transition-opacity duration-300"
@@ -174,17 +187,40 @@ function CurvedLink({
   );
 }
 
+function screenToSvg(svgEl: SVGSVGElement, clientX: number, clientY: number) {
+  const pt = svgEl.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const ctm = svgEl.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  const svgPt = pt.matrixTransform(ctm.inverse());
+  return { x: svgPt.x, y: svgPt.y };
+}
+
 export function MindMap({
   allNodes, connections, onNodeSelect, onNodeZoom,
   selectedNode, focusNodeId, onAddNode, fullscreen
 }: MindMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [viewBox, setViewBox] = useState({ x: -600, y: -450, w: 1200, h: 900 });
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
   const [fullTextNode, setFullTextNode] = useState<KnowledgeNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 1200, height: 900 });
+
+  const nodeOffsets = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const [dragState, setDragState] = useState<{
+    nodeId: number;
+    startSvg: { x: number; y: number };
+    startOffset: { x: number; y: number };
+  } | null>(null);
+  const velocityRef = useRef<Map<number, { vx: number; vy: number }>>(new Map());
+  const lastDragPos = useRef<{ x: number; y: number; t: number } | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
+  const [, forceUpdate] = useState(0);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -202,6 +238,20 @@ export function MindMap({
     () => layoutRadialTree(childrenMap, focusNodeId, 0, 0),
     [childrenMap, focusNodeId]
   );
+
+  useEffect(() => {
+    nodeOffsets.current.clear();
+    velocityRef.current.clear();
+    forceUpdate(n => n + 1);
+  }, [focusNodeId, allNodes.length]);
+
+  const getNodePos = useCallback((pn: PositionedNode) => {
+    const off = nodeOffsets.current.get(pn.node.id);
+    return {
+      x: pn.x + (off?.x ?? 0),
+      y: pn.y + (off?.y ?? 0),
+    };
+  }, []);
 
   const posMap = useMemo(() => {
     const m = new Map<number, PositionedNode>();
@@ -222,10 +272,8 @@ export function MindMap({
         const parentPos = pid !== null && pid !== focusNodeId ? posMap.get(pid) : null;
         return {
           id: `edge-${pid ?? "root"}-${pn.node.id}`,
-          x1: parentPos ? parentPos.x : 0,
-          y1: parentPos ? parentPos.y : 0,
-          x2: pn.x,
-          y2: pn.y,
+          childId: pn.node.id,
+          parentNodeId: parentPos ? pid : null,
           color: pn.node.color || NODE_COLORS[pn.node.level] || "#8B5CF6",
           level: pn.node.level,
         };
@@ -240,15 +288,13 @@ export function MindMap({
         if (!source || !target) return null;
         return {
           id: `conn-${conn.id}`,
-          x1: source.x,
-          y1: source.y,
-          x2: target.x,
-          y2: target.y,
+          sourceId: conn.sourceId,
+          targetId: conn.targetId,
           description: conn.description,
         };
       })
       .filter(Boolean) as {
-        id: string; x1: number; y1: number; x2: number; y2: number; description: string | null;
+        id: string; sourceId: number; targetId: number; description: string | null;
       }[];
   }, [connections, posMap]);
 
@@ -272,10 +318,13 @@ export function MindMap({
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     positionedNodes.forEach(({ x, y, radius }) => {
-      minX = Math.min(minX, x - radius - 100);
-      maxX = Math.max(maxX, x + radius + 100);
-      minY = Math.min(minY, y - radius - 100);
-      maxY = Math.max(maxY, y + radius + 100);
+      const off = nodeOffsets.current.get(positionedNodes.find(pn => pn.x === x && pn.y === y)?.node.id ?? -1);
+      const px = x + (off?.x ?? 0);
+      const py = y + (off?.y ?? 0);
+      minX = Math.min(minX, px - radius - 100);
+      maxX = Math.max(maxX, px + radius + 100);
+      minY = Math.min(minY, py - radius - 100);
+      maxY = Math.max(maxY, py + radius + 100);
     });
     minX = Math.min(minX, -100);
     maxX = Math.max(maxX, 100);
@@ -350,19 +399,122 @@ export function MindMap({
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isPanning) return;
-    const svgEl = containerRef.current?.querySelector("svg");
+    const svgEl = svgRef.current;
     if (!svgEl) return;
     const rect = svgEl.getBoundingClientRect();
     const scaleX = viewBox.w / rect.width;
     const scaleY = viewBox.h / rect.height;
-    const dx = (e.clientX - panStart.x) * scaleX * 0.08;
-    const dy = (e.clientY - panStart.y) * scaleY * 0.08;
+    const dx = (e.clientX - panStart.x) * scaleX;
+    const dy = (e.clientY - panStart.y) * scaleY;
     setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
     setPanStart({ x: e.clientX, y: e.clientY });
   }, [isPanning, panStart, viewBox]);
 
   const handlePointerUp = useCallback(() => {
     setIsPanning(false);
+  }, []);
+
+  const startMomentumDecay = useCallback(() => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+
+    let lastTime = performance.now();
+    const FRICTION = 3.5;
+
+    const tick = (now: number) => {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      let anyMoving = false;
+
+      velocityRef.current.forEach((vel, nodeId) => {
+        const speed = Math.sqrt(vel.vx * vel.vx + vel.vy * vel.vy);
+        if (speed < 0.5) {
+          velocityRef.current.delete(nodeId);
+          return;
+        }
+        anyMoving = true;
+        const decay = Math.exp(-FRICTION * dt);
+        vel.vx *= decay;
+        vel.vy *= decay;
+
+        const off = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
+        off.x += vel.vx * dt;
+        off.y += vel.vy * dt;
+        nodeOffsets.current.set(nodeId, off);
+      });
+
+      if (anyMoving) {
+        forceUpdate(n => n + 1);
+        animFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        animFrameRef.current = null;
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const handleNodeDragStart = useCallback((nodeId: number, e: React.PointerEvent) => {
+    if (e.button !== 0 || canPan(e)) return;
+    e.stopPropagation();
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+
+    velocityRef.current.delete(nodeId);
+
+    const svgPt = screenToSvg(svgEl, e.clientX, e.clientY);
+    const off = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
+
+    didDragRef.current = false;
+    setDragState({ nodeId, startSvg: svgPt, startOffset: { ...off } });
+    lastDragPos.current = { x: svgPt.x, y: svgPt.y, t: performance.now() };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  }, [canPan]);
+
+  const handleNodeDragMove = useCallback((e: React.PointerEvent) => {
+    if (!dragState) return;
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+
+    const svgPt = screenToSvg(svgEl, e.clientX, e.clientY);
+    const dx = svgPt.x - dragState.startSvg.x;
+    const dy = svgPt.y - dragState.startSvg.y;
+
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      didDragRef.current = true;
+    }
+
+    nodeOffsets.current.set(dragState.nodeId, {
+      x: dragState.startOffset.x + dx,
+      y: dragState.startOffset.y + dy,
+    });
+
+    const now = performance.now();
+    const prev = lastDragPos.current;
+    if (prev) {
+      const elapsed = (now - prev.t) / 1000;
+      if (elapsed > 0.001) {
+        velocityRef.current.set(dragState.nodeId, {
+          vx: (svgPt.x - prev.x) / elapsed,
+          vy: (svgPt.y - prev.y) / elapsed,
+        });
+      }
+    }
+    lastDragPos.current = { x: svgPt.x, y: svgPt.y, t: now };
+
+    forceUpdate(n => n + 1);
+  }, [dragState]);
+
+  const handleNodeDragEnd = useCallback(() => {
+    if (!dragState) return;
+    setDragState(null);
+    lastDragPos.current = null;
+    startMomentumDecay();
+  }, [dragState, startMomentumDecay]);
+
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
   }, []);
 
   const focusNode = focusNodeId !== null ? allNodes.find((n) => n.id === focusNodeId) : null;
@@ -410,40 +562,38 @@ export function MindMap({
         </button>
       </div>
 
-      <div className={`absolute ${fullscreen ? "bottom-4 left-1/2 -translate-x-1/2" : "bottom-4 left-4"} z-10 flex items-center gap-2 flex-wrap`}>
-        {LEVEL_NAMES.map((name, i) => {
-          const color = NODE_COLORS[i];
-          return (
-            <div key={name} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-              <span>{name}</span>
-            </div>
-          );
-        })}
-      </div>
-
       <svg
+        ref={svgRef}
         width="100%"
         height="100%"
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-        className={`select-none ${isPanning ? "cursor-grabbing" : spaceHeld ? "cursor-grab" : "cursor-default"}`}
+        className={`select-none ${dragState ? "cursor-grabbing" : isPanning ? "cursor-grabbing" : spaceHeld ? "cursor-grab" : "cursor-default"}`}
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerMove={(e) => {
+          handlePointerMove(e);
+          handleNodeDragMove(e);
+        }}
+        onPointerUp={(e) => {
+          handlePointerUp();
+          handleNodeDragEnd();
+        }}
+        onPointerLeave={() => {
+          handlePointerUp();
+          handleNodeDragEnd();
+        }}
         onAuxClick={(e) => e.preventDefault()}
         onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
       >
         <defs>
           <radialGradient id="center-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.15" />
+            <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.12" />
             <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
           </radialGradient>
-          <filter id="node-shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.15" />
+          <filter id="box-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="1" stdDeviation="3" floodColor="#8B5CF6" floodOpacity="0.12" />
           </filter>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="6" result="blur" />
+            <feGaussianBlur stdDeviation="5" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -451,7 +601,7 @@ export function MindMap({
           </filter>
         </defs>
 
-        <circle cx="0" cy="0" r="300" fill="url(#center-glow)" />
+        <circle cx="0" cy="0" r="350" fill="url(#center-glow)" />
 
         {Array.from({ length: maxRing }, (_, i) => i + 1).map((ring) => (
           <circle
@@ -462,65 +612,98 @@ export function MindMap({
             fill="none"
             stroke="hsl(var(--border))"
             strokeWidth="0.5"
-            opacity="0.3"
-            strokeDasharray="4 8"
+            opacity="0.2"
+            strokeDasharray="3 8"
           />
         ))}
 
-        {connectionEdges.map((edge) => (
-          <CurvedLink
-            key={edge.id}
-            x1={edge.x1}
-            y1={edge.y1}
-            x2={edge.x2}
-            y2={edge.y2}
-            color="#6366F1"
-            opacity={0.4}
-            isConnection
-          />
-        ))}
+        {connectionEdges.map((edge) => {
+          const srcPn = posMap.get(edge.sourceId);
+          const tgtPn = posMap.get(edge.targetId);
+          if (!srcPn || !tgtPn) return null;
+          const srcPos = getNodePos(srcPn);
+          const tgtPos = getNodePos(tgtPn);
+          return (
+            <CurvedLink
+              key={edge.id}
+              x1={srcPos.x}
+              y1={srcPos.y}
+              x2={tgtPos.x}
+              y2={tgtPos.y}
+              color="#6366F1"
+              opacity={0.4}
+              isConnection
+            />
+          );
+        })}
 
-        {parentEdges.map((edge) => (
-          <CurvedLink
-            key={edge.id}
-            x1={edge.x1}
-            y1={edge.y1}
-            x2={edge.x2}
-            y2={edge.y2}
-            color={edge.color}
-            opacity={0.4}
-          />
-        ))}
+        {parentEdges.map((edge) => {
+          const childPn = posMap.get(edge.childId);
+          if (!childPn) return null;
+          const childPos = getNodePos(childPn);
+          let parentPos = { x: 0, y: 0 };
+          if (edge.parentNodeId !== null) {
+            const parentPn = posMap.get(edge.parentNodeId);
+            if (parentPn) parentPos = getNodePos(parentPn);
+          }
+          return (
+            <CurvedLink
+              key={edge.id}
+              x1={parentPos.x}
+              y1={parentPos.y}
+              x2={childPos.x}
+              y2={childPos.y}
+              color={edge.color}
+              opacity={0.35}
+            />
+          );
+        })}
 
         <g data-map-node="center" className="cursor-pointer" onClick={onAddNode}>
-          <foreignObject x="-70" y="-28" width="140" height="56" style={{ pointerEvents: "auto", overflow: "visible" }}>
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-500/80 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/20 hover:border-violet-400 transition-all" style={{ height: 56 }}>
-              <span className="text-sm font-bold text-foreground">{centerLabel}</span>
-              <span className="text-[10px] text-muted-foreground">{centerSublabel}</span>
+          <foreignObject x="-75" y="-30" width="150" height="60" style={{ pointerEvents: "auto", overflow: "visible" }}>
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-500/70 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/20 hover:border-violet-400 hover:shadow-violet-500/30 transition-all" style={{ height: 60 }}>
+              <span className="text-sm font-bold text-foreground tracking-tight">{centerLabel}</span>
+              <span className="text-[10px] text-muted-foreground mt-0.5">{centerSublabel}</span>
             </div>
           </foreignObject>
         </g>
 
         {positionedNodes.map((pn) => {
+          const pos = getNodePos(pn);
           const isSelected = selectedNode?.id === pn.node.id;
           const isHovered = hoveredNode === pn.node.id;
+          const isDragging = dragState?.nodeId === pn.node.id;
           const color = pn.node.color || NODE_COLORS[pn.node.level] || "#8B5CF6";
           const children = allNodes.filter((n) => n.parentId === pn.node.id);
           const hasChildren = children.length > 0;
           const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
           const depth = pn.node.level;
           const fontSize = Math.max(10 - depth, 7);
+          const isArticle = pn.node.level === 2 && !!pn.node.content;
+          const isCategory = pn.node.level === 1;
+
+          const boxW = isArticle ? 170 : isCategory ? 120 : 140;
+          const boxH = isArticle ? 48 : isCategory ? 38 : 36;
+          const bx = pos.x - boxW / 2;
+          const by = pos.y - boxH / 2;
+
+          const displayTitle = pn.node.level >= 3 && pn.node.level <= 6
+            ? `${tierLabel} : ${pn.node.title.replace(/^[^\p{L}\p{N}]*(지혜|지식|정보|데이터)\s*/u, "")}`
+            : pn.node.title;
+
+          const tierIcon = TIER_ICONS[pn.node.level] || "";
 
           return (
             <g
               key={pn.node.id}
               data-map-node={pn.node.id}
-              className="cursor-pointer"
+              className={isDragging ? "cursor-grabbing" : "cursor-grab"}
               onPointerEnter={() => setHoveredNode(pn.node.id)}
               onPointerLeave={() => setHoveredNode(null)}
+              onPointerDown={(e) => handleNodeDragStart(pn.node.id, e)}
               onClick={(e) => {
                 e.stopPropagation();
-                onNodeSelect(pn.node);
+                if (!isDragging && !didDragRef.current) onNodeSelect(pn.node);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -530,64 +713,59 @@ export function MindMap({
               }}
               data-testid={`map-node-${pn.node.id}`}
             >
-              {(() => {
-                const isArticle = pn.node.level === 2 && !!pn.node.content;
-                const boxW = isArticle ? 160 : 130;
-                const boxH = isArticle ? 44 : 34;
-                const bx = pn.x - boxW / 2;
-                const by = pn.y - boxH / 2;
-                return (
-                  <foreignObject
-                    x={bx}
-                    y={by}
-                    width={boxW}
-                    height={boxH + 20}
-                    style={{ pointerEvents: "auto", overflow: "visible" }}
+              <foreignObject
+                x={bx}
+                y={by}
+                width={boxW}
+                height={boxH + 18}
+                style={{ pointerEvents: "auto", overflow: "visible" }}
+              >
+                <div
+                  className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-center leading-tight transition-all duration-200 ${
+                    isArticle
+                      ? "border-2 border-violet-500/50 bg-gradient-to-br from-violet-500/10 to-violet-600/5 shadow-md shadow-violet-500/10 hover:shadow-violet-500/20 hover:border-violet-400/70 cursor-pointer"
+                      : isCategory
+                        ? "border border-border/60 bg-card/90 backdrop-blur-sm shadow-sm hover:shadow-md"
+                        : "border border-border/40 bg-card/80 backdrop-blur-sm shadow-sm hover:shadow-md"
+                  } ${isDragging ? "ring-2 ring-primary/40 scale-105" : ""} ${
+                    isSelected ? "ring-2 ring-primary/60" : ""
+                  } ${isHovered && !isDragging ? "scale-[1.03]" : ""}`}
+                  style={{
+                    minHeight: boxH,
+                    borderColor: !isArticle && (isSelected || isHovered) ? color : undefined,
+                    transform: isDragging ? "scale(1.05)" : isHovered ? "scale(1.03)" : "scale(1)",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+                  }}
+                  onClick={(e) => {
+                    if (isArticle) {
+                      e.stopPropagation();
+                      setFullTextNode(pn.node);
+                    }
+                  }}
+                  data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
+                >
+                  {isArticle && (
+                    <FileText style={{ width: 12, height: 12, flexShrink: 0 }} className="text-violet-400" />
+                  )}
+                  <span
+                    className={`font-semibold leading-tight line-clamp-2 ${
+                      isArticle ? "text-violet-300 dark:text-violet-300" 
+                      : isCategory ? "text-foreground" 
+                      : "text-foreground/80"
+                    }`}
+                    style={{ fontSize: isArticle ? 9 : isCategory ? 11 : fontSize }}
                   >
-                    <div
-                      className={`flex items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-center leading-tight transition-all ${
-                        isArticle
-                          ? "border-2 border-violet-500/60 bg-violet-500/15 shadow-lg shadow-violet-500/15 hover:bg-violet-500/25 hover:border-violet-400/80 cursor-pointer"
-                          : isSelected
-                            ? `border-2 bg-card/90 backdrop-blur-sm shadow-md`
-                            : isHovered
-                              ? "border bg-card/90 backdrop-blur-sm shadow-md"
-                              : "border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm"
-                      }`}
-                      style={{
-                        minHeight: boxH,
-                        borderColor: isArticle ? undefined : (isSelected || isHovered) ? color : undefined,
-                      }}
-                      onClick={(e) => {
-                        if (isArticle) {
-                          e.stopPropagation();
-                          setFullTextNode(pn.node);
-                        }
-                      }}
-                      data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
-                    >
-                      {isArticle && (
-                        <FileText style={{ width: 11, height: 11, flexShrink: 0 }} className="text-violet-400" />
-                      )}
-                      <span
-                        className={`font-semibold leading-tight line-clamp-2 ${isArticle ? "text-violet-300" : "text-foreground/80"}`}
-                        style={{ fontSize: isArticle ? 9 : fontSize }}
-                      >
-                        {pn.node.level >= 3 && pn.node.level <= 6
-                          ? `${tierLabel} : ${pn.node.title.replace(/^[^\p{L}\p{N}]*(지혜|지식|정보|데이터)\s*/u, "")}`
-                          : pn.node.title}
-                      </span>
-                    </div>
-                    {(isHovered || isSelected) && (
-                      <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 6) }}>
-                        <span className="text-muted-foreground font-mono">
-                          {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
-                        </span>
-                      </div>
-                    )}
-                  </foreignObject>
-                );
-              })()}
+                    {displayTitle}
+                  </span>
+                </div>
+                {(isHovered || isSelected) && !isDragging && (
+                  <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 6) }}>
+                    <span className="text-muted-foreground font-mono">
+                      {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
+                    </span>
+                  </div>
+                )}
+              </foreignObject>
             </g>
           );
         })}
@@ -600,32 +778,32 @@ export function MindMap({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md"
             onClick={() => setFullTextNode(null)}
             data-testid="fulltext-overlay"
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.92, y: 24 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="relative w-[90%] max-w-lg max-h-[80%] rounded-xl border-2 border-violet-500/40 bg-card shadow-2xl shadow-violet-500/10 overflow-hidden flex flex-col"
+              exit={{ opacity: 0, scale: 0.92, y: 24 }}
+              transition={{ type: "spring", damping: 28, stiffness: 350 }}
+              className="relative w-[90%] max-w-lg max-h-[80%] rounded-2xl border border-violet-500/30 bg-card shadow-2xl shadow-violet-500/10 overflow-hidden flex flex-col"
               onClick={(e) => e.stopPropagation()}
               data-testid="fulltext-popup"
             >
-              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/60 bg-violet-500/5">
-                <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-4 h-4 text-violet-400" />
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40 bg-gradient-to-r from-violet-500/5 to-transparent">
+                <div className="w-9 h-9 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4.5 h-4.5 text-violet-400" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-bold text-foreground truncate" data-testid="fulltext-title">
                     {fullTextNode.title}
                   </h3>
-                  <p className="text-xs text-muted-foreground truncate">{fullTextNode.description}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{fullTextNode.description}</p>
                 </div>
                 <button
                   onClick={() => setFullTextNode(null)}
-                  className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-muted transition-colors flex-shrink-0"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-muted transition-colors flex-shrink-0"
                   data-testid="button-close-fulltext"
                 >
                   <X className="w-4 h-4 text-muted-foreground" />
