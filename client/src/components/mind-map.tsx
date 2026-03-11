@@ -493,47 +493,12 @@ export function MindMap({
         ))}
 
         <g data-map-node="center" className="cursor-pointer" onClick={onAddNode}>
-          <circle
-            cx="0"
-            cy="0"
-            r="42"
-            fill="hsl(var(--card))"
-            stroke="#8B5CF6"
-            strokeWidth="2.5"
-            filter="url(#node-shadow)"
-          />
-          <circle
-            cx="0"
-            cy="0"
-            r="50"
-            fill="none"
-            stroke="#8B5CF6"
-            strokeWidth="1"
-            opacity="0.3"
-          />
-          <text
-            x="0"
-            y="-5"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="hsl(var(--foreground))"
-            fontSize="14"
-            fontWeight="700"
-            fontFamily="var(--font-sans)"
-          >
-            {centerLabel}
-          </text>
-          <text
-            x="0"
-            y="13"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="hsl(var(--muted-foreground))"
-            fontSize="10"
-            fontFamily="var(--font-sans)"
-          >
-            {centerSublabel}
-          </text>
+          <foreignObject x="-70" y="-28" width="140" height="56" style={{ pointerEvents: "auto", overflow: "visible" }}>
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-500/80 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/20 hover:border-violet-400 transition-all" style={{ height: 56 }}>
+              <span className="text-sm font-bold text-foreground">{centerLabel}</span>
+              <span className="text-[10px] text-muted-foreground">{centerSublabel}</span>
+            </div>
+          </foreignObject>
         </g>
 
         {positionedNodes.map((pn) => {
@@ -542,7 +507,6 @@ export function MindMap({
           const color = pn.node.color || NODE_COLORS[pn.node.level] || "#8B5CF6";
           const children = allNodes.filter((n) => n.parentId === pn.node.id);
           const hasChildren = children.length > 0;
-          const density = Math.min(children.length / 5, 1);
           const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
           const depth = pn.node.level;
           const fontSize = Math.max(10 - depth, 7);
@@ -566,69 +530,34 @@ export function MindMap({
               }}
               data-testid={`map-node-${pn.node.id}`}
             >
-              {isSelected && (
-                <circle
-                  cx={pn.x}
-                  cy={pn.y}
-                  r={pn.radius + 8}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth="2"
-                  opacity="0.4"
-                  strokeDasharray="4 3"
-                >
-                  <animateTransform
-                    attributeName="transform"
-                    type="rotate"
-                    from={`0 ${pn.x} ${pn.y}`}
-                    to={`360 ${pn.x} ${pn.y}`}
-                    dur="12s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
-              )}
-
-              <circle
-                cx={pn.x}
-                cy={pn.y}
-                r={isHovered || isSelected ? pn.radius + 3 : pn.radius}
-                fill={`${color}${isHovered ? "30" : "18"}`}
-                stroke={color}
-                strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 1.5}
-                opacity={density * 0.3 + 0.7}
-                filter={isHovered ? "url(#glow)" : "url(#node-shadow)"}
-                style={{ transition: "r 0.2s, stroke-width 0.2s" }}
-              />
-
-              <circle
-                cx={pn.x}
-                cy={pn.y}
-                r={pn.radius * 0.3}
-                fill={color}
-                opacity={0.3 + density * 0.5}
-              />
-
               {(() => {
                 const isArticle = pn.node.level === 2 && !!pn.node.content;
                 const boxW = isArticle ? 160 : 130;
-                const boxH = isArticle ? 42 : 32;
+                const boxH = isArticle ? 44 : 34;
                 const bx = pn.x - boxW / 2;
-                const by = pn.y + pn.radius + 6;
+                const by = pn.y - boxH / 2;
                 return (
                   <foreignObject
                     x={bx}
                     y={by}
                     width={boxW}
-                    height={boxH}
+                    height={boxH + 20}
                     style={{ pointerEvents: "auto", overflow: "visible" }}
                   >
                     <div
-                      className={`flex items-center justify-center gap-1 rounded-md px-2 py-1 text-center leading-tight transition-all ${
+                      className={`flex items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-center leading-tight transition-all ${
                         isArticle
-                          ? "border-2 border-violet-500/60 bg-violet-500/15 shadow-md shadow-violet-500/10 hover:bg-violet-500/25 cursor-pointer"
-                          : "border border-border/50 bg-card/80 backdrop-blur-sm"
+                          ? "border-2 border-violet-500/60 bg-violet-500/15 shadow-lg shadow-violet-500/15 hover:bg-violet-500/25 hover:border-violet-400/80 cursor-pointer"
+                          : isSelected
+                            ? `border-2 bg-card/90 backdrop-blur-sm shadow-md`
+                            : isHovered
+                              ? "border bg-card/90 backdrop-blur-sm shadow-md"
+                              : "border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm"
                       }`}
-                      style={{ minHeight: boxH }}
+                      style={{
+                        minHeight: boxH,
+                        borderColor: isArticle ? undefined : (isSelected || isHovered) ? color : undefined,
+                      }}
                       onClick={(e) => {
                         if (isArticle) {
                           e.stopPropagation();
@@ -638,7 +567,7 @@ export function MindMap({
                       data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
                     >
                       {isArticle && (
-                        <FileText style={{ width: 10, height: 10, flexShrink: 0 }} className="text-violet-400" />
+                        <FileText style={{ width: 11, height: 11, flexShrink: 0 }} className="text-violet-400" />
                       )}
                       <span
                         className={`font-semibold leading-tight line-clamp-2 ${isArticle ? "text-violet-300" : "text-foreground/80"}`}
