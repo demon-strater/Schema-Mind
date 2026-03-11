@@ -14,6 +14,36 @@ interface MindMapProps {
   fullscreen?: boolean;
 }
 
+function buildAdjacency(
+  allNodes: KnowledgeNode[],
+  connections: Connection[],
+  posMap: Map<number, PositionedNode>
+): Map<number, Set<number>> {
+  const adj = new Map<number, Set<number>>();
+  const ensure = (id: number) => { if (!adj.has(id)) adj.set(id, new Set()); };
+
+  allNodes.forEach((node) => {
+    if (!posMap.has(node.id)) return;
+    ensure(node.id);
+    if (node.parentId !== null && posMap.has(node.parentId)) {
+      ensure(node.parentId);
+      adj.get(node.id)!.add(node.parentId);
+      adj.get(node.parentId)!.add(node.id);
+    }
+  });
+
+  connections.forEach((conn) => {
+    if (posMap.has(conn.sourceId) && posMap.has(conn.targetId)) {
+      ensure(conn.sourceId);
+      ensure(conn.targetId);
+      adj.get(conn.sourceId)!.add(conn.targetId);
+      adj.get(conn.targetId)!.add(conn.sourceId);
+    }
+  });
+
+  return adj;
+}
+
 interface PositionedNode {
   node: KnowledgeNode;
   x: number;
@@ -219,6 +249,7 @@ export function MindMap({
   const velocityRef = useRef<Map<number, { vx: number; vy: number }>>(new Map());
   const lastDragPos = useRef<{ x: number; y: number; t: number } | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const dragSpringRef = useRef<number | null>(null);
   const didDragRef = useRef(false);
   const [, forceUpdate] = useState(0);
 
@@ -414,6 +445,63 @@ export function MindMap({
     setIsPanning(false);
   }, []);
 
+  const adjacency = useMemo(
+    () => buildAdjacency(allNodes, connections, posMap),
+    [allNodes, connections, posMap]
+  );
+
+  const applySpringForces = useCallback((draggedId: number | null, dt: number) => {
+    const SPRING_K = 0.15;
+    const DAMPING = 0.85;
+
+    const forces = new Map<number, { fx: number; fy: number }>();
+
+    adjacency.forEach((neighbors, nodeId) => {
+      if (nodeId === draggedId) return;
+      const pn = posMap.get(nodeId);
+      if (!pn) return;
+      const offA = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
+
+      neighbors.forEach((neighborId) => {
+        const pnB = posMap.get(neighborId);
+        if (!pnB) return;
+        const offB = nodeOffsets.current.get(neighborId) || { x: 0, y: 0 };
+
+        const diffX = offB.x - offA.x;
+        const diffY = offB.y - offA.y;
+        const dist = Math.sqrt(diffX * diffX + diffY * diffY);
+        if (dist < 0.5) return;
+
+        const fx = diffX * SPRING_K;
+        const fy = diffY * SPRING_K;
+
+        if (!forces.has(nodeId)) forces.set(nodeId, { fx: 0, fy: 0 });
+        const f = forces.get(nodeId)!;
+        f.fx += fx;
+        f.fy += fy;
+      });
+    });
+
+    let anyMoved = false;
+    forces.forEach(({ fx, fy }, nodeId) => {
+      const magnitude = Math.sqrt(fx * fx + fy * fy);
+      if (magnitude < 0.3) return;
+
+      anyMoved = true;
+      const vel = velocityRef.current.get(nodeId) || { vx: 0, vy: 0 };
+      vel.vx = (vel.vx + fx) * DAMPING;
+      vel.vy = (vel.vy + fy) * DAMPING;
+      velocityRef.current.set(nodeId, vel);
+
+      const off = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
+      off.x += vel.vx * dt;
+      off.y += vel.vy * dt;
+      nodeOffsets.current.set(nodeId, off);
+    });
+
+    return anyMoved;
+  }, [adjacency, posMap]);
+
   const startMomentumDecay = useCallback(() => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
 
@@ -442,6 +530,9 @@ export function MindMap({
         nodeOffsets.current.set(nodeId, off);
       });
 
+      const springMoved = applySpringForces(null, dt);
+      anyMoving = anyMoving || springMoved;
+
       if (anyMoving) {
         forceUpdate(n => n + 1);
         animFrameRef.current = requestAnimationFrame(tick);
@@ -451,7 +542,7 @@ export function MindMap({
     };
 
     animFrameRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [applySpringForces]);
 
   const handleNodeDragStart = useCallback((nodeId: number, e: React.PointerEvent) => {
     if (e.button !== 0 || canPan(e)) return;
@@ -469,6 +560,36 @@ export function MindMap({
     lastDragPos.current = { x: svgPt.x, y: svgPt.y, t: performance.now() };
     (e.target as Element).setPointerCapture?.(e.pointerId);
   }, [canPan]);
+
+  const startDragSpringLoop = useCallback(() => {
+    if (dragSpringRef.current) return;
+    let last = performance.now();
+    const loop = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+      const dragging = dragState;
+      if (dragging) {
+        applySpringForces(dragging.nodeId, dt);
+        forceUpdate(n => n + 1);
+        dragSpringRef.current = requestAnimationFrame(loop);
+      } else {
+        dragSpringRef.current = null;
+      }
+    };
+    dragSpringRef.current = requestAnimationFrame(loop);
+  }, [dragState, applySpringForces]);
+
+  useEffect(() => {
+    if (dragState) {
+      startDragSpringLoop();
+    }
+    return () => {
+      if (dragSpringRef.current) {
+        cancelAnimationFrame(dragSpringRef.current);
+        dragSpringRef.current = null;
+      }
+    };
+  }, [dragState, startDragSpringLoop]);
 
   const handleNodeDragMove = useCallback((e: React.PointerEvent) => {
     if (!dragState) return;
@@ -514,6 +635,7 @@ export function MindMap({
   useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (dragSpringRef.current) cancelAnimationFrame(dragSpringRef.current);
     };
   }, []);
 
@@ -703,12 +825,11 @@ export function MindMap({
               onPointerDown={(e) => handleNodeDragStart(pn.node.id, e)}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!isDragging && !didDragRef.current) onNodeSelect(pn.node);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                if (hasChildren || pn.node.level < 7) {
-                  onNodeZoom(pn.node);
+                if (!didDragRef.current && pn.node.content) {
+                  setFullTextNode(pn.node);
                 }
               }}
               data-testid={`map-node-${pn.node.id}`}
@@ -723,7 +844,7 @@ export function MindMap({
                 <div
                   className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-center leading-tight transition-all duration-200 ${
                     isArticle
-                      ? "border-2 border-violet-400 dark:border-violet-400 bg-gradient-to-br from-violet-500/15 to-violet-600/10 shadow-md shadow-violet-500/15 hover:shadow-violet-500/25 hover:border-violet-300 cursor-pointer"
+                      ? "border-2 border-violet-400 dark:border-violet-400 bg-gradient-to-br from-violet-500/15 to-violet-600/10 shadow-md shadow-violet-500/15 hover:shadow-violet-500/25 hover:border-violet-300"
                       : isCategory
                         ? "border-2 border-violet-500/70 dark:border-violet-400/60 bg-card/95 backdrop-blur-sm shadow-sm hover:shadow-md"
                         : "border border-violet-400/50 dark:border-violet-300/40 bg-card/90 backdrop-blur-sm shadow-sm hover:shadow-md"
@@ -735,12 +856,6 @@ export function MindMap({
                     borderColor: !isArticle && (isSelected || isHovered) ? color : undefined,
                     transform: isDragging ? "scale(1.05)" : isHovered ? "scale(1.03)" : "scale(1)",
                     transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
-                  }}
-                  onClick={(e) => {
-                    if (isArticle) {
-                      e.stopPropagation();
-                      setFullTextNode(pn.node);
-                    }
                   }}
                   data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
                 >
