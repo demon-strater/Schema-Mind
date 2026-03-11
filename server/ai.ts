@@ -100,12 +100,20 @@ ${text}`;
   let subjectNode;
   if (existingSubjectId) {
     subjectNode = (await storage.getNode(existingSubjectId))!;
+    if (!subjectNode.content) {
+      await storage.updateNode(existingSubjectId, { content: text });
+    } else {
+      await storage.updateNode(existingSubjectId, {
+        content: subjectNode.content + "\n\n---\n\n" + text,
+      });
+    }
   } else {
     subjectNode = await storage.createNode({
       parentId: null,
       level: 1,
       title: result.subject,
       description: result.subjectDescription,
+      content: text,
       color: LEVEL_COLORS[1],
       icon: LEVEL_ICONS[1],
       sortOrder: 0,
@@ -170,5 +178,6 @@ ${text}`;
   return {
     createdNodes: result.items.length + (existingSubjectId ? 0 : 1),
     subjectTitle: result.subject,
+    subjectId: subjectNode.id,
   };
 }

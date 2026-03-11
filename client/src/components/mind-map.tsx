@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { type KnowledgeNode, type Connection, LEVEL_NAMES, LEVEL_COLORS } from "@shared/schema";
+import { type KnowledgeNode, type Connection, LEVEL_NAMES, LEVEL_COLORS, LEVEL_LABELS_KO } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
 import { ZoomIn, ZoomOut, Maximize, Plus } from "lucide-react";
 
@@ -11,6 +11,7 @@ interface MindMapProps {
   selectedNode: KnowledgeNode | null;
   focusNodeId: number | null;
   onAddNode: () => void;
+  onViewFullText?: (node: KnowledgeNode) => void;
 }
 
 interface PositionedNode {
@@ -151,7 +152,7 @@ function CurvedLink({
 
 export function MindMap({
   allNodes, connections, onNodeSelect, onNodeZoom,
-  selectedNode, focusNodeId, onAddNode
+  selectedNode, focusNodeId, onAddNode, onViewFullText
 }: MindMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewBox, setViewBox] = useState({ x: -600, y: -450, w: 1200, h: 900 });
@@ -509,6 +510,7 @@ export function MindMap({
           const children = allNodes.filter((n) => n.parentId === pn.node.id);
           const hasChildren = children.length > 0;
           const density = Math.min(children.length / 5, 1);
+          const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
 
           return (
             <g
@@ -596,7 +598,7 @@ export function MindMap({
                 fontSize="8"
                 fontFamily="var(--font-mono)"
               >
-                L{pn.node.level}
+                {tierLabel}
                 {hasChildren ? ` · ${children.length}` : ""}
               </text>
 
@@ -615,6 +617,56 @@ export function MindMap({
             </g>
           );
         })}
+
+        {positionedNodes
+          .filter((pn) => pn.node.level === 1 && pn.node.content)
+          .map((pn) => {
+            const cardW = 180;
+            const cardH = 68;
+            const offsetX = pn.x > 0 ? pn.radius + 20 : -pn.radius - cardW - 20;
+            const offsetY = -cardH / 2;
+
+            return (
+              <foreignObject
+                key={`report-${pn.node.id}`}
+                x={pn.x + offsetX}
+                y={pn.y + offsetY}
+                width={cardW}
+                height={cardH}
+                data-testid={`report-card-${pn.node.id}`}
+              >
+                <div
+                  className="h-full rounded-lg border border-violet-500/30 bg-card/95 backdrop-blur-sm shadow-lg overflow-hidden flex flex-col"
+                  style={{ fontSize: 0 }}
+                >
+                  <div className="flex-1 px-3 py-2">
+                    <div style={{ fontSize: 8 }} className="text-violet-400 font-semibold uppercase tracking-wider mb-0.5">
+                      📄 보고서
+                    </div>
+                    <div style={{ fontSize: 11 }} className="font-bold text-foreground leading-tight truncate">
+                      {pn.node.title}
+                    </div>
+                    {pn.node.description && (
+                      <div style={{ fontSize: 8 }} className="text-muted-foreground leading-tight truncate mt-0.5">
+                        {pn.node.description}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewFullText?.(pn.node);
+                    }}
+                    className="w-full px-3 py-1.5 border-t border-violet-500/20 hover:bg-violet-500/10 transition-colors cursor-pointer"
+                    style={{ fontSize: 9 }}
+                    data-testid={`button-view-fulltext-${pn.node.id}`}
+                  >
+                    <span className="text-violet-400 font-medium">전문 보기 →</span>
+                  </button>
+                </div>
+              </foreignObject>
+            );
+          })}
       </svg>
 
       {positionedNodes.length === 0 && (

@@ -7,6 +7,7 @@ import { NodeGrid } from "@/components/node-grid";
 import { NodeDetail } from "@/components/node-detail";
 import { AddNodeDialog } from "@/components/add-node-dialog";
 import { AnalyzeDialog } from "@/components/analyze-dialog";
+import { FullTextDialog } from "@/components/full-text-dialog";
 import { BreadcrumbNav } from "@/components/breadcrumb-nav";
 import { ConnectionPanel } from "@/components/connection-panel";
 import { MindMap } from "@/components/mind-map";
@@ -23,6 +24,7 @@ export default function Home() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [analyzeDialogOpen, setAnalyzeDialogOpen] = useState(false);
   const [connectionPanelOpen, setConnectionPanelOpen] = useState(false);
+  const [fullTextNode, setFullTextNode] = useState<KnowledgeNode | null>(null);
 
   const currentParentId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : null;
   const currentLevel = currentPath.length;
@@ -114,6 +116,7 @@ export default function Home() {
                 selectedNode={selectedNode}
                 focusNodeId={currentParentId}
                 onAddNode={() => setAddDialogOpen(true)}
+                onViewFullText={(node) => setFullTextNode(node)}
               />
             </div>
           </>
@@ -215,6 +218,7 @@ export default function Home() {
               onClose={() => setSelectedNode(null)}
               onDelete={() => deleteNodeMutation.mutate(selectedNode.id)}
               isDeleting={deleteNodeMutation.isPending}
+              onViewFullText={selectedNode.level === 1 && selectedNode.content ? () => setFullTextNode(selectedNode) : undefined}
             />
           )}
         </AnimatePresence>
@@ -236,6 +240,12 @@ export default function Home() {
         <AnalyzeDialog
           open={analyzeDialogOpen}
           onOpenChange={setAnalyzeDialogOpen}
+        />
+
+        <FullTextDialog
+          open={fullTextNode !== null}
+          onOpenChange={(open) => { if (!open) setFullTextNode(null); }}
+          node={fullTextNode}
         />
       </main>
     </div>

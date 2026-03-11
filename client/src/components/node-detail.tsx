@@ -1,6 +1,6 @@
-import { type KnowledgeNode, type Connection, LEVEL_NAMES, LEVEL_COLORS } from "@shared/schema";
+import { type KnowledgeNode, type Connection, LEVEL_NAMES, LEVEL_COLORS, LEVEL_LABELS_KO } from "@shared/schema";
 import { motion } from "framer-motion";
-import { X, Trash2, Network, Clock } from "lucide-react";
+import { X, Trash2, Network, Clock, FileText } from "lucide-react";
 import { format } from "date-fns";
 
 interface NodeDetailProps {
@@ -10,9 +10,10 @@ interface NodeDetailProps {
   onClose: () => void;
   onDelete: () => void;
   isDeleting: boolean;
+  onViewFullText?: () => void;
 }
 
-export function NodeDetail({ node, connections, allNodes, onClose, onDelete, isDeleting }: NodeDetailProps) {
+export function NodeDetail({ node, connections, allNodes, onClose, onDelete, isDeleting, onViewFullText }: NodeDetailProps) {
   const levelColor = node.color || LEVEL_COLORS[node.level] || LEVEL_COLORS[0];
 
   const connectedNodes = connections.map((c) => {
@@ -37,7 +38,7 @@ export function NodeDetail({ node, connections, allNodes, onClose, onDelete, isD
               style={{ background: levelColor }}
             />
             <span className="text-xs font-mono text-muted-foreground">
-              {LEVEL_NAMES[node.level]} · L{node.level}
+              {LEVEL_LABELS_KO[node.level]} · L{node.level}
             </span>
           </div>
           <button
@@ -77,6 +78,17 @@ export function NodeDetail({ node, connections, allNodes, onClose, onDelete, isD
               {node.content}
             </div>
           </div>
+        )}
+
+        {onViewFullText && (
+          <button
+            onClick={onViewFullText}
+            className="flex items-center gap-2 w-full px-4 py-3 mb-6 rounded-lg border border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 transition-colors text-sm font-medium text-violet-400"
+            data-testid="button-view-full-text"
+          >
+            <FileText className="w-4 h-4" />
+            전문 보기
+          </button>
         )}
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-6">

@@ -17,6 +17,7 @@ export interface IStorage {
   getAllNodes(): Promise<KnowledgeNode[]>;
   getNode(id: number): Promise<KnowledgeNode | undefined>;
   createNode(node: InsertNode): Promise<KnowledgeNode>;
+  updateNode(id: number, data: Partial<InsertNode>): Promise<KnowledgeNode>;
   deleteNode(id: number): Promise<void>;
   getConnections(): Promise<Connection[]>;
   createConnection(conn: InsertConnection): Promise<Connection>;
@@ -44,6 +45,11 @@ export class DatabaseStorage implements IStorage {
   async createNode(node: InsertNode): Promise<KnowledgeNode> {
     const [created] = await db.insert(knowledgeNodes).values(node).returning();
     return created;
+  }
+
+  async updateNode(id: number, data: Partial<InsertNode>): Promise<KnowledgeNode> {
+    const [updated] = await db.update(knowledgeNodes).set(data).where(eq(knowledgeNodes.id, id)).returning();
+    return updated;
   }
 
   async deleteNode(id: number): Promise<void> {
