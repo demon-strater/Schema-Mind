@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { type KnowledgeNode, type Connection, LEVEL_NAMES, LEVEL_COLORS, LEVEL_LABELS_KO } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
-import { ZoomIn, ZoomOut, Maximize, Plus } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize, Plus, X, FileText } from "lucide-react";
 
 interface MindMapProps {
   allNodes: KnowledgeNode[];
@@ -183,6 +183,7 @@ export function MindMap({
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
+  const [fullTextNode, setFullTextNode] = useState<KnowledgeNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 1200, height: 900 });
 
   useEffect(() => {
@@ -607,51 +608,107 @@ export function MindMap({
                 opacity={0.3 + density * 0.5}
               />
 
-              <text
-                x={pn.x}
-                y={pn.y + pn.radius + 14}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill="hsl(var(--foreground))"
-                fontSize={fontSize}
-                fontWeight="600"
-                fontFamily="var(--font-sans)"
-                opacity={isHovered || isSelected ? 1 : 0.8}
-              >
-                {pn.node.title}
-              </text>
-
-              <text
-                x={pn.x}
-                y={pn.y + pn.radius + 14 + fontSize + 2}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill="hsl(var(--muted-foreground))"
-                fontSize={Math.max(fontSize - 2, 6)}
-                fontFamily="var(--font-mono)"
-              >
-                {tierLabel}
-                {hasChildren ? ` · ${children.length}` : ""}
-              </text>
-
-              {isHovered && pn.node.description && (
-                <foreignObject
-                  x={pn.x - 90}
-                  y={pn.y - pn.radius - 48}
-                  width="180"
-                  height="40"
-                  style={{ pointerEvents: "none" }}
-                >
-                  <div className="bg-popover border border-popover-border rounded-lg px-3 py-1.5 text-[10px] text-popover-foreground leading-tight text-center shadow-lg line-clamp-2">
-                    {pn.node.description}
-                  </div>
-                </foreignObject>
-              )}
+              {(() => {
+                const isArticle = pn.node.level === 2 && !!pn.node.content;
+                const boxW = isArticle ? 160 : 130;
+                const boxH = isArticle ? 42 : 32;
+                const bx = pn.x - boxW / 2;
+                const by = pn.y + pn.radius + 6;
+                return (
+                  <foreignObject
+                    x={bx}
+                    y={by}
+                    width={boxW}
+                    height={boxH}
+                    style={{ pointerEvents: "auto", overflow: "visible" }}
+                  >
+                    <div
+                      className={`flex items-center justify-center gap-1 rounded-md px-2 py-1 text-center leading-tight transition-all ${
+                        isArticle
+                          ? "border-2 border-violet-500/60 bg-violet-500/15 shadow-md shadow-violet-500/10 hover:bg-violet-500/25 cursor-pointer"
+                          : "border border-border/50 bg-card/80 backdrop-blur-sm"
+                      }`}
+                      style={{ minHeight: boxH }}
+                      onClick={(e) => {
+                        if (isArticle) {
+                          e.stopPropagation();
+                          setFullTextNode(pn.node);
+                        }
+                      }}
+                      data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
+                    >
+                      {isArticle && (
+                        <FileText style={{ width: 10, height: 10, flexShrink: 0 }} className="text-violet-400" />
+                      )}
+                      <span
+                        className={`font-semibold leading-tight line-clamp-2 ${isArticle ? "text-violet-300" : "text-foreground/80"}`}
+                        style={{ fontSize: isArticle ? 9 : fontSize }}
+                      >
+                        {pn.node.title}
+                      </span>
+                    </div>
+                    {(isHovered || isSelected) && (
+                      <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 6) }}>
+                        <span className="text-muted-foreground font-mono">
+                          {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
+                        </span>
+                      </div>
+                    )}
+                  </foreignObject>
+                );
+              })()}
             </g>
           );
         })}
 
       </svg>
+
+      <AnimatePresence>
+        {fullTextNode && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setFullTextNode(null)}
+            data-testid="fulltext-overlay"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-[90%] max-w-lg max-h-[80%] rounded-xl border-2 border-violet-500/40 bg-card shadow-2xl shadow-violet-500/10 overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+              data-testid="fulltext-popup"
+            >
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/60 bg-violet-500/5">
+                <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4 h-4 text-violet-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-bold text-foreground truncate" data-testid="fulltext-title">
+                    {fullTextNode.title}
+                  </h3>
+                  <p className="text-xs text-muted-foreground truncate">{fullTextNode.description}</p>
+                </div>
+                <button
+                  onClick={() => setFullTextNode(null)}
+                  className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-muted transition-colors flex-shrink-0"
+                  data-testid="button-close-fulltext"
+                >
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" data-testid="fulltext-content">
+                  {fullTextNode.content}
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {positionedNodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
