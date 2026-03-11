@@ -276,24 +276,11 @@ export function MindMap({
         e.preventDefault();
         const factor = e.deltaY > 0 ? 1.08 : 0.92;
         handleZoom(factor);
-      } else {
-        e.preventDefault();
-        const svgEl = el.querySelector("svg");
-        if (!svgEl) return;
-        const rect = svgEl.getBoundingClientRect();
-        const scaleY = viewBox.h / rect.height;
-        const scaleX = viewBox.w / rect.width;
-        const sensitivity = 0.3;
-        setViewBox((v) => ({
-          ...v,
-          x: v.x + (e.deltaX * scaleX * sensitivity),
-          y: v.y + (e.deltaY * scaleY * sensitivity),
-        }));
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [handleZoom, viewBox]);
+  }, [handleZoom]);
 
   const [spaceHeld, setSpaceHeld] = useState(false);
 
