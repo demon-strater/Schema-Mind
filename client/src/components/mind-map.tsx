@@ -54,54 +54,90 @@ function layoutRadialTree(
   centerY: number
 ): PositionedNode[] {
   const positioned: PositionedNode[] = [];
-
-  const rootChildren = focusNodeId === null
-    ? childrenMap.get(null) || []
-    : childrenMap.get(focusNodeId) || [];
-
+  let rootId = focusNodeId;
+  let rootChildren = childrenMap.get(rootId) || [];
+  if (rootChildren.length === 0 && rootId !== null) {
+    rootId = null;
+    rootChildren = childrenMap.get(null) || [];
+  }
   if (rootChildren.length === 0) return positioned;
 
-  const LEVEL_RADIUS_BASE = 180;
-  const MIN_SPACING = 90;
+  const MIN_ARC_SPACING = 100;
+  const BASE_RADIUS = 240;
+  const RADIUS_STEP = 220;
+  const MIN_LEAF_WEIGHT = 3;
 
-  function layoutSubtree(
-    nodeId: number,
-    node: KnowledgeNode,
+  const leafCache = new Map<number, number>();
+  function countLeaves(nodeId: number): number {
+    if (leafCache.has(nodeId)) return leafCache.get(nodeId)!;
+    const ch = childrenMap.get(nodeId) || [];
+    const count = ch.length === 0 ? 1 : ch.reduce((s, c) => s + countLeaves(c.id), 0);
+    leafCache.set(nodeId, count);
+    return count;
+  }
+
+  function effectiveWeight(nodeId: number): number {
+    return Math.max(countLeaves(nodeId), MIN_LEAF_WEIGHT);
+  }
+
+  function nodeSize(depth: number): number {
+    return Math.max(28 - depth * 4, 14);
+  }
+
+  function layoutChildren(
+    parentId: number | null,
     angleStart: number,
     angleEnd: number,
     depth: number
   ) {
-    const r = LEVEL_RADIUS_BASE * depth;
-    const angleMid = (angleStart + angleEnd) / 2;
-    const x = centerX + r * Math.cos(angleMid);
-    const y = centerY + r * Math.sin(angleMid);
-    const nodeRadius = Math.max(28 - depth * 3, 12);
-
-    positioned.push({ node, x, y, radius: nodeRadius });
-
-    const children = childrenMap.get(nodeId) || [];
+    const children = parentId === rootId
+      ? rootChildren
+      : childrenMap.get(parentId) || [];
     if (children.length === 0) return;
 
     const angleRange = angleEnd - angleStart;
-    const childAngleStep = angleRange / children.length;
+    const baseR = BASE_RADIUS + RADIUS_STEP * (depth - 1);
 
+    const weights = children.map(c => effectiveWeight(c.id));
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const proportions = weights.map(w => totalWeight > 0 ? w / totalWeight : 1 / children.length);
+
+    let r = baseR;
+    if (children.length > 1) {
+      for (let i = 0; i < children.length; i++) {
+        const j = (i + 1) % children.length;
+        const halfArcI = angleRange * proportions[i] / 2;
+        const halfArcJ = angleRange * proportions[j] / 2;
+        const gapAngle = halfArcI + halfArcJ;
+        const neededR = MIN_ARC_SPACING / Math.max(gapAngle, 0.001);
+        r = Math.max(r, neededR);
+      }
+    }
+
+    let currentAngle = angleStart;
     children.forEach((child, i) => {
-      const childStart = angleStart + childAngleStep * i;
-      const childEnd = childStart + childAngleStep;
-      layoutSubtree(child.id, child, childStart, childEnd, depth + 1);
+      const childAngle = angleRange * proportions[i];
+      const angleMid = currentAngle + childAngle / 2;
+
+      const x = centerX + r * Math.cos(angleMid);
+      const y = centerY + r * Math.sin(angleMid);
+      const nr = nodeSize(depth);
+
+      positioned.push({ node: child, x, y, radius: nr });
+
+      layoutChildren(child.id, currentAngle, currentAngle + childAngle, depth + 1);
+      currentAngle += childAngle;
     });
   }
 
-  const totalAngle = Math.PI * 2;
-  const angleStep = totalAngle / rootChildren.length;
-
-  rootChildren.forEach((child, i) => {
-    const startAngle = angleStep * i - Math.PI / 2;
-    const endAngle = startAngle + angleStep;
-    layoutSubtree(child.id, child, startAngle, endAngle, 1);
-  });
-
+  layoutChildren(rootId, -Math.PI / 2, Math.PI * 1.5, 1);
   return positioned;
+}
+
+function truncateLabel(title: string, depth: number): string {
+  const maxLen = depth <= 1 ? 8 : depth === 2 ? 10 : 8;
+  if (title.length <= maxLen) return title;
+  return title.slice(0, maxLen - 1) + "…";
 }
 
 function CurvedLink({
@@ -110,19 +146,16 @@ function CurvedLink({
   x1: number; y1: number; x2: number; y2: number;
   color: string; opacity: number; isConnection?: boolean;
 }) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-
   if (isConnection) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
     const perpX = -dy * 0.2;
     const perpY = dx * 0.2;
-    const cpX = midX + perpX;
-    const cpY = midY + perpY;
     return (
       <path
-        d={`M ${x1} ${y1} Q ${cpX} ${cpY} ${x2} ${y2}`}
+        d={`M ${x1} ${y1} Q ${midX + perpX} ${midY + perpY} ${x2} ${y2}`}
         stroke={color}
         strokeWidth={1.5}
         strokeDasharray="6 4"
@@ -133,14 +166,10 @@ function CurvedLink({
     );
   }
 
-  const cx1 = x1 + dx * 0.4;
-  const cy1 = y1;
-  const cx2 = x1 + dx * 0.6;
-  const cy2 = y2;
-
+  const dx = x2 - x1;
   return (
     <path
-      d={`M ${x1} ${y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${x2} ${y2}`}
+      d={`M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1} ${x1 + dx * 0.6} ${y2} ${x2} ${y2}`}
       stroke={color}
       strokeWidth={2}
       fill="none"
@@ -247,16 +276,16 @@ export function MindMap({
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     positionedNodes.forEach(({ x, y, radius }) => {
-      minX = Math.min(minX, x - radius - 60);
-      maxX = Math.max(maxX, x + radius + 60);
-      minY = Math.min(minY, y - radius - 60);
-      maxY = Math.max(maxY, y + radius + 60);
+      minX = Math.min(minX, x - radius - 100);
+      maxX = Math.max(maxX, x + radius + 100);
+      minY = Math.min(minY, y - radius - 100);
+      maxY = Math.max(maxY, y + radius + 100);
     });
-    minX = Math.min(minX, -60);
-    maxX = Math.max(maxX, 60);
-    minY = Math.min(minY, -60);
-    maxY = Math.max(maxY, 60);
-    const padding = 80;
+    minX = Math.min(minX, -100);
+    maxX = Math.max(maxX, 100);
+    minY = Math.min(minY, -100);
+    maxY = Math.max(maxY, 100);
+    const padding = 120;
     setViewBox({
       x: minX - padding,
       y: minY - padding,
@@ -327,9 +356,8 @@ export function MindMap({
     const rect = svgEl.getBoundingClientRect();
     const scaleX = viewBox.w / rect.width;
     const scaleY = viewBox.h / rect.height;
-    const dragSensitivity = 0.08;
-    const dx = (e.clientX - panStart.x) * scaleX * dragSensitivity;
-    const dy = (e.clientY - panStart.y) * scaleY * dragSensitivity;
+    const dx = (e.clientX - panStart.x) * scaleX * 0.08;
+    const dy = (e.clientY - panStart.y) * scaleY * 0.08;
     setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
     setPanStart({ x: e.clientX, y: e.clientY });
   }, [isPanning, panStart, viewBox]);
@@ -341,6 +369,16 @@ export function MindMap({
   const focusNode = focusNodeId !== null ? allNodes.find((n) => n.id === focusNodeId) : null;
   const centerLabel = focusNode ? focusNode.title : "Cogito";
   const centerSublabel = focusNode ? LEVEL_NAMES[focusNode.level] : "나";
+
+  const maxRing = useMemo(() => {
+    if (positionedNodes.length === 0) return 3;
+    let maxDist = 0;
+    positionedNodes.forEach(({ x, y }) => {
+      const d = Math.sqrt(x * x + y * y);
+      if (d > maxDist) maxDist = d;
+    });
+    return Math.ceil(maxDist / 220) + 1;
+  }, [positionedNodes]);
 
   return (
     <div
@@ -414,12 +452,12 @@ export function MindMap({
 
         <circle cx="0" cy="0" r="300" fill="url(#center-glow)" />
 
-        {[1, 2, 3, 4].map((ring) => (
+        {Array.from({ length: maxRing }, (_, i) => i + 1).map((ring) => (
           <circle
             key={ring}
             cx="0"
             cy="0"
-            r={180 * ring}
+            r={220 * ring}
             fill="none"
             stroke="hsl(var(--border))"
             strokeWidth="0.5"
@@ -449,13 +487,7 @@ export function MindMap({
             x2={edge.x2}
             y2={edge.y2}
             color={edge.color}
-            opacity={
-              hoveredNode !== null
-                ? hoveredNode === edge.level
-                  ? 0.7
-                  : 0.15
-                : 0.4
-            }
+            opacity={0.4}
           />
         ))}
 
@@ -488,7 +520,7 @@ export function MindMap({
             fontWeight="700"
             fontFamily="var(--font-sans)"
           >
-            {centerLabel}
+            {truncateLabel(centerLabel, 0)}
           </text>
           <text
             x="0"
@@ -511,6 +543,8 @@ export function MindMap({
           const hasChildren = children.length > 0;
           const density = Math.min(children.length / 5, 1);
           const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
+          const depth = pn.node.level;
+          const fontSize = Math.max(10 - depth, 7);
 
           return (
             <g
@@ -575,27 +609,25 @@ export function MindMap({
 
               <text
                 x={pn.x}
-                y={pn.y + pn.radius + 16}
+                y={pn.y + pn.radius + 14}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="hsl(var(--foreground))"
-                fontSize={Math.max(11 - (pn.node.level - 1), 8)}
+                fontSize={fontSize}
                 fontWeight="600"
                 fontFamily="var(--font-sans)"
                 opacity={isHovered || isSelected ? 1 : 0.8}
               >
-                {pn.node.title.length > 18
-                  ? pn.node.title.slice(0, 16) + "…"
-                  : pn.node.title}
+                {truncateLabel(pn.node.title, depth)}
               </text>
 
               <text
                 x={pn.x}
-                y={pn.y + pn.radius + 28}
+                y={pn.y + pn.radius + 14 + fontSize + 2}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="hsl(var(--muted-foreground))"
-                fontSize="8"
+                fontSize={Math.max(fontSize - 2, 6)}
                 fontFamily="var(--font-mono)"
               >
                 {tierLabel}
@@ -604,10 +636,11 @@ export function MindMap({
 
               {isHovered && pn.node.description && (
                 <foreignObject
-                  x={pn.x - 100}
-                  y={pn.y - pn.radius - 52}
-                  width="200"
-                  height="44"
+                  x={pn.x - 90}
+                  y={pn.y - pn.radius - 48}
+                  width="180"
+                  height="40"
+                  style={{ pointerEvents: "none" }}
                 >
                   <div className="bg-popover border border-popover-border rounded-lg px-3 py-1.5 text-[10px] text-popover-foreground leading-tight text-center shadow-lg line-clamp-2">
                     {pn.node.description}
@@ -621,44 +654,44 @@ export function MindMap({
         {positionedNodes
           .filter((pn) => pn.node.level === 2 && pn.node.content)
           .map((pn) => {
-            const cardW = 180;
-            const cardH = 68;
-            const offsetX = pn.x > 0 ? pn.radius + 20 : -pn.radius - cardW - 20;
-            const offsetY = -cardH / 2;
+            const angle = Math.atan2(pn.y, pn.x);
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const cardW = 140;
+            const cardH = 52;
+            const dist = pn.radius + 16;
+            const cx = pn.x + cos * dist + (cos >= 0 ? 0 : -cardW);
+            const cy = pn.y + sin * dist - cardH / 2;
 
             return (
               <foreignObject
                 key={`report-${pn.node.id}`}
-                x={pn.x + offsetX}
-                y={pn.y + offsetY}
+                x={cx}
+                y={cy}
                 width={cardW}
                 height={cardH}
                 data-testid={`report-card-${pn.node.id}`}
+                style={{ pointerEvents: "auto" }}
               >
                 <div
                   className="h-full rounded-lg border border-violet-500/30 bg-card/95 backdrop-blur-sm shadow-lg overflow-hidden flex flex-col"
                   style={{ fontSize: 0 }}
                 >
-                  <div className="flex-1 px-3 py-2">
-                    <div style={{ fontSize: 8 }} className="text-violet-400 font-semibold uppercase tracking-wider mb-0.5">
+                  <div className="flex-1 px-2 py-1">
+                    <div style={{ fontSize: 7 }} className="text-violet-400 font-semibold uppercase tracking-wider">
                       📄 보고서
                     </div>
-                    <div style={{ fontSize: 11 }} className="font-bold text-foreground leading-tight truncate">
+                    <div style={{ fontSize: 9 }} className="font-bold text-foreground leading-tight truncate">
                       {pn.node.title}
                     </div>
-                    {pn.node.description && (
-                      <div style={{ fontSize: 8 }} className="text-muted-foreground leading-tight truncate mt-0.5">
-                        {pn.node.description}
-                      </div>
-                    )}
                   </div>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onViewFullText?.(pn.node);
                     }}
-                    className="w-full px-3 py-1.5 border-t border-violet-500/20 hover:bg-violet-500/10 transition-colors cursor-pointer"
-                    style={{ fontSize: 9 }}
+                    className="w-full px-2 py-1 border-t border-violet-500/20 hover:bg-violet-500/10 transition-colors cursor-pointer"
+                    style={{ fontSize: 8 }}
                     data-testid={`button-view-fulltext-${pn.node.id}`}
                   >
                     <span className="text-violet-400 font-medium">전문 보기 →</span>
@@ -673,18 +706,17 @@ export function MindMap({
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-center pointer-events-auto">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mb-4">
-              <span className="text-3xl">🌱</span>
+              <Plus className="w-8 h-8 text-primary" />
             </div>
             <p className="text-sm text-muted-foreground mb-3">
-              Start adding knowledge nodes to grow your brain
+              텍스트를 분석하여 지식을 구조화하세요
             </p>
             <button
               onClick={onAddNode}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-              data-testid="button-add-first-mind-map"
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              data-testid="button-add-first-node"
             >
-              <Plus className="w-4 h-4 inline mr-1" />
-              Add First Node
+              AI 분석 시작
             </button>
           </div>
         </div>
