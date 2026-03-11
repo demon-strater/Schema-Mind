@@ -800,12 +800,18 @@ export function MindMap({
           const hasChildren = children.length > 0;
           const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
           const depth = pn.node.level;
-          const fontSize = Math.max(14 - depth, 11);
           const isArticle = pn.node.level === 2 && !!pn.node.content;
           const isCategory = pn.node.level === 1;
 
-          const boxW = isArticle ? 210 : isCategory ? 150 : 170;
-          const boxH = isArticle ? 56 : isCategory ? 44 : 42;
+          const FONT_SIZES: Record<number, number> = { 1: 15, 2: 13, 3: 12, 4: 11, 5: 10, 6: 9 };
+          const FONT_WEIGHTS: Record<number, number> = { 1: 700, 2: 600, 3: 500, 4: 500, 5: 400, 6: 400 };
+          const fontSize = FONT_SIZES[depth] || 9;
+          const fontWeight = FONT_WEIGHTS[depth] || 400;
+
+          const BOX_SIZES: Record<number, [number, number]> = {
+            1: [150, 46], 2: [210, 54], 3: [180, 44], 4: [170, 40], 5: [155, 36], 6: [140, 34]
+          };
+          const [boxW, boxH] = BOX_SIZES[depth] || [140, 34];
           const bx = pos.x - boxW / 2;
           const by = pos.y - boxH / 2;
 
@@ -863,18 +869,18 @@ export function MindMap({
                     <FileText style={{ width: 16, height: 16, flexShrink: 0 }} className="text-violet-400" />
                   )}
                   <span
-                    className={`font-semibold leading-tight line-clamp-2 ${
+                    className={`leading-tight line-clamp-2 ${
                       isArticle ? "text-violet-200 dark:text-violet-200" 
                       : isCategory ? "text-foreground" 
-                      : "text-foreground"
+                      : depth <= 4 ? "text-foreground/90" : "text-foreground/75"
                     }`}
-                    style={{ fontSize: isArticle ? 12 : isCategory ? 14 : fontSize }}
+                    style={{ fontSize, fontWeight }}
                   >
                     {displayTitle}
                   </span>
                 </div>
                 {(isHovered || isSelected) && !isDragging && (
-                  <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 1, 10) }}>
+                  <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 8) }}>
                     <span className="text-muted-foreground font-mono">
                       {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
                     </span>
