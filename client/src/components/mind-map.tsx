@@ -12,6 +12,7 @@ interface MindMapProps {
   focusNodeId: number | null;
   onAddNode: () => void;
   onViewFullText?: (node: KnowledgeNode) => void;
+  fullscreen?: boolean;
 }
 
 interface PositionedNode {
@@ -181,7 +182,7 @@ function CurvedLink({
 
 export function MindMap({
   allNodes, connections, onNodeSelect, onNodeZoom,
-  selectedNode, focusNodeId, onAddNode, onViewFullText
+  selectedNode, focusNodeId, onAddNode, onViewFullText, fullscreen
 }: MindMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewBox, setViewBox] = useState({ x: -600, y: -450, w: 1200, h: 900 });
@@ -383,35 +384,35 @@ export function MindMap({
   return (
     <div
       ref={containerRef}
-      className="relative w-full bg-background rounded-2xl border border-border overflow-hidden"
-      style={{ height: "calc(100vh - 200px)", minHeight: 500 }}
+      className={`relative w-full bg-background overflow-hidden ${fullscreen ? "" : "rounded-2xl border border-border"}`}
+      style={fullscreen ? { width: "100%", height: "100%" } : { height: "calc(100vh - 200px)", minHeight: 500 }}
       data-testid="mind-map"
     >
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-1.5">
+      <div className={`absolute ${fullscreen ? "bottom-4 right-4" : "top-4 right-4"} z-10 flex ${fullscreen ? "flex-row" : "flex-col"} gap-1.5`}>
         <button
           onClick={() => handleZoom(0.8)}
-          className="w-9 h-9 rounded-lg bg-card border border-border flex items-center justify-center hover:bg-muted transition-colors"
+          className="w-9 h-9 rounded-lg bg-card/90 backdrop-blur-sm border border-border/60 flex items-center justify-center hover:bg-muted transition-colors shadow-sm"
           data-testid="button-zoom-in-map"
         >
           <ZoomIn className="w-4 h-4 text-foreground" />
         </button>
         <button
           onClick={() => handleZoom(1.25)}
-          className="w-9 h-9 rounded-lg bg-card border border-border flex items-center justify-center hover:bg-muted transition-colors"
+          className="w-9 h-9 rounded-lg bg-card/90 backdrop-blur-sm border border-border/60 flex items-center justify-center hover:bg-muted transition-colors shadow-sm"
           data-testid="button-zoom-out-map"
         >
           <ZoomOut className="w-4 h-4 text-foreground" />
         </button>
         <button
           onClick={handleReset}
-          className="w-9 h-9 rounded-lg bg-card border border-border flex items-center justify-center hover:bg-muted transition-colors"
+          className="w-9 h-9 rounded-lg bg-card/90 backdrop-blur-sm border border-border/60 flex items-center justify-center hover:bg-muted transition-colors shadow-sm"
           data-testid="button-fit-map"
         >
           <Maximize className="w-4 h-4 text-foreground" />
         </button>
       </div>
 
-      <div className="absolute bottom-4 left-4 z-10 flex items-center gap-2 flex-wrap">
+      <div className={`absolute ${fullscreen ? "bottom-4 left-1/2 -translate-x-1/2" : "bottom-4 left-4"} z-10 flex items-center gap-2 flex-wrap`}>
         {LEVEL_NAMES.map((name, i) => {
           const color = NODE_COLORS[i];
           return (
