@@ -126,43 +126,34 @@ ${text}`;
   const createdNodeMap = new Map<string, number>();
   createdNodeMap.set(result.articleTitle, articleNode.id);
 
-  const itemsByTier: Record<string, typeof result.items> = {
-    wisdom: [],
-    knowledge: [],
-    information: [],
-    data: [],
-  };
-  for (const item of result.items) {
-    itemsByTier[item.tier].push(item);
-  }
-
   const tiers = ["wisdom", "knowledge", "information", "data"] as const;
-  let parentIdForTier = articleNode.id;
+  const tierLabels: Record<string, string> = {
+    wisdom: "💡 지혜",
+    knowledge: "📖 지식",
+    information: "ℹ️ 정보",
+    data: "📊 데이터",
+  };
+
+  let sortOrder = 0;
 
   for (const tier of tiers) {
-    const items = itemsByTier[tier];
-    if (items.length === 0) continue;
+    const tierItems = result.items.filter((item) => item.tier === tier);
+    if (tierItems.length === 0) continue;
 
     const level = TIER_TO_LEVEL[tier] + 1;
-    let firstNodeId: number | null = null;
 
-    for (const item of items) {
+    for (const item of tierItems) {
       const node = await storage.createNode({
-        parentId: parentIdForTier,
+        parentId: articleNode.id,
         level,
-        title: item.title,
+        title: `${tierLabels[tier]} ${item.title}`,
         description: item.description,
         content: item.content || null,
         color: LEVEL_COLORS[Math.min(level, 7)],
         icon: LEVEL_ICONS[Math.min(level, 7)],
-        sortOrder: 0,
+        sortOrder: sortOrder++,
       });
       createdNodeMap.set(item.title, node.id);
-      if (firstNodeId === null) firstNodeId = node.id;
-    }
-
-    if (firstNodeId !== null) {
-      parentIdForTier = firstNodeId;
     }
   }
 
