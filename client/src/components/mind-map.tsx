@@ -644,7 +644,9 @@ export function MindMap({
                         className={`font-semibold leading-tight line-clamp-2 ${isArticle ? "text-violet-300" : "text-foreground/80"}`}
                         style={{ fontSize: isArticle ? 9 : fontSize }}
                       >
-                        {pn.node.title}
+                        {pn.node.level >= 3 && pn.node.level <= 6
+                          ? `${tierLabel} : ${pn.node.title.replace(/^[^\p{L}\p{N}]*(지혜|지식|정보|데이터)\s*/u, "")}`
+                          : pn.node.title}
                       </span>
                     </div>
                     {(isHovered || isSelected) && (
