@@ -13,15 +13,17 @@ SchemaMind is a hierarchical digital brain application for organizing and connec
 ## 9 Fixed Top-Level Categories (Level 1)
 철학, 종교, 사회과학, 자연과학, 기술과학, 예술, 언어, 문학, 역사
 
-## DIKW Knowledge Hierarchy
+## DIKW Knowledge Hierarchy (Chained)
 - Level 0: Cogito (나) — center of mind map
 - Level 1: Category (9 fixed categories above)
 - Level 2: Article (글/보고서) — AI-generated article node with original text stored in content field
-- Level 3: Wisdom (지혜) — core principles, deep insights
-- Level 4: Knowledge (지식) — organized understanding, theories
-- Level 5: Information (정보) — contextual facts, definitions
-- Level 6: Data (데이터) — raw facts, numbers, quotes
+- Level 3: Wisdom (지혜) — children of article, core principles, deep insights
+- Level 4: Knowledge (지식) — children of first wisdom node, organized understanding
+- Level 5: Information (정보) — children of first knowledge node, contextual facts
+- Level 6: Data (데이터) — children of first information node, raw facts, numbers
 - Level 7: Raw (원문)
+- Structure: Article → 지혜(들) → 지식(들) → 정보(들) → 데이터(들)
+- Each tier's items are siblings under the first item of the previous tier
 
 ## Key Files
 - `shared/schema.ts` - Data models (knowledgeNodes, connections), level constants (LEVEL_NAMES, LEVEL_LABELS_KO)

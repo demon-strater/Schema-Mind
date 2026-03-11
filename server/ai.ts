@@ -30,6 +30,22 @@ const analysisResultSchema = z.object({
   })).default([]),
 });
 
+const TIER_LEVEL: Record<string, number> = {
+  wisdom: 3,
+  knowledge: 4,
+  information: 5,
+  data: 6,
+};
+
+const tierLabels: Record<string, string> = {
+  wisdom: "💡 지혜",
+  knowledge: "📖 지식",
+  information: "ℹ️ 정보",
+  data: "📊 데이터",
+};
+
+const tierOrder = ["wisdom", "knowledge", "information", "data"] as const;
+
 export async function analyzeText(text: string): Promise<{ createdNodes: number; subjectTitle: string; category: string; subjectId: number }> {
   const allNodes = await storage.getAllNodes();
   const categoryNodes = allNodes.filter((n) => n.level === 1 && n.parentId === null);
@@ -71,6 +87,7 @@ CRITICAL RULES:
 - "category" MUST be exactly one of: ${categoryNames.join(", ")}
 - Do NOT invent new categories. Choose the closest match.
 - Aim for 4-8 items distributed across all 4 tiers.
+- Include at least one item per tier if possible.
 
 TEXT TO ANALYZE:
 ${text}`;
@@ -118,32 +135,46 @@ ${text}`;
   const createdNodeMap = new Map<string, number>();
   createdNodeMap.set(result.articleTitle, articleNode.id);
 
-  const tierLabels: Record<string, string> = {
-    wisdom: "💡 지혜",
-    knowledge: "📖 지식",
-    information: "ℹ️ 정보",
-    data: "📊 데이터",
+  const itemsByTier: Record<string, typeof result.items> = {
+    wisdom: [],
+    knowledge: [],
+    information: [],
+    data: [],
   };
+  for (const item of result.items) {
+    itemsByTier[item.tier].push(item);
+  }
 
-  const tierOrder = ["wisdom", "knowledge", "information", "data"] as const;
-  let sortOrder = 0;
+  let lastTierFirstNodeId = articleNode.id;
 
   for (const tier of tierOrder) {
-    const tierItems = result.items.filter((item) => item.tier === tier);
-    if (tierItems.length === 0) continue;
+    const items = itemsByTier[tier];
+    if (items.length === 0) continue;
 
-    for (const item of tierItems) {
+    const level = TIER_LEVEL[tier];
+    const parentId = lastTierFirstNodeId;
+    let firstNodeId: number | null = null;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       const node = await storage.createNode({
-        parentId: articleNode.id,
-        level: 3,
+        parentId,
+        level,
         title: `${tierLabels[tier]} ${item.title}`,
         description: item.description,
         content: item.content || null,
-        color: LEVEL_COLORS[3],
-        icon: LEVEL_ICONS[3],
-        sortOrder: sortOrder++,
+        color: LEVEL_COLORS[Math.min(level, 7)],
+        icon: LEVEL_ICONS[Math.min(level, 7)],
+        sortOrder: i,
       });
       createdNodeMap.set(item.title, node.id);
+      if (firstNodeId === null) {
+        firstNodeId = node.id;
+      }
+    }
+
+    if (firstNodeId !== null) {
+      lastTierFirstNodeId = firstNodeId;
     }
   }
 
