@@ -11,7 +11,6 @@ interface MindMapProps {
   selectedNode: KnowledgeNode | null;
   focusNodeId: number | null;
   onAddNode: () => void;
-  onViewFullText?: (node: KnowledgeNode) => void;
   fullscreen?: boolean;
 }
 
@@ -182,7 +181,7 @@ function CurvedLink({
 
 export function MindMap({
   allNodes, connections, onNodeSelect, onNodeZoom,
-  selectedNode, focusNodeId, onAddNode, onViewFullText, fullscreen
+  selectedNode, focusNodeId, onAddNode, fullscreen
 }: MindMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewBox, setViewBox] = useState({ x: -600, y: -450, w: 1200, h: 900 });
@@ -652,55 +651,6 @@ export function MindMap({
           );
         })}
 
-        {positionedNodes
-          .filter((pn) => pn.node.level === 2 && pn.node.content)
-          .map((pn) => {
-            const angle = Math.atan2(pn.y, pn.x);
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-            const cardW = 140;
-            const cardH = 52;
-            const dist = pn.radius + 16;
-            const cx = pn.x + cos * dist + (cos >= 0 ? 0 : -cardW);
-            const cy = pn.y + sin * dist - cardH / 2;
-
-            return (
-              <foreignObject
-                key={`report-${pn.node.id}`}
-                x={cx}
-                y={cy}
-                width={cardW}
-                height={cardH}
-                data-testid={`report-card-${pn.node.id}`}
-                style={{ pointerEvents: "auto" }}
-              >
-                <div
-                  className="h-full rounded-lg border border-violet-500/30 bg-card/95 backdrop-blur-sm shadow-lg overflow-hidden flex flex-col"
-                  style={{ fontSize: 0 }}
-                >
-                  <div className="flex-1 px-2 py-1">
-                    <div style={{ fontSize: 7 }} className="text-violet-400 font-semibold uppercase tracking-wider">
-                      📄 보고서
-                    </div>
-                    <div style={{ fontSize: 9 }} className="font-bold text-foreground leading-tight truncate">
-                      {pn.node.title}
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onViewFullText?.(pn.node);
-                    }}
-                    className="w-full px-2 py-1 border-t border-violet-500/20 hover:bg-violet-500/10 transition-colors cursor-pointer"
-                    style={{ fontSize: 8 }}
-                    data-testid={`button-view-fulltext-${pn.node.id}`}
-                  >
-                    <span className="text-violet-400 font-medium">전문 보기 →</span>
-                  </button>
-                </div>
-              </foreignObject>
-            );
-          })}
       </svg>
 
       {positionedNodes.length === 0 && (
