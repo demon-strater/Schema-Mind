@@ -1,4 +1,4 @@
-import { Brain, Zap, Network, LayoutGrid, GitBranch } from "lucide-react";
+import { Brain, Zap, Network, LayoutGrid, GitBranch, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface BrainHeaderProps {
@@ -6,9 +6,10 @@ interface BrainHeaderProps {
   onOpenConnections: () => void;
   viewMode?: "mindmap" | "grid";
   onViewModeChange?: (mode: "mindmap" | "grid") => void;
+  onOpenAnalyze?: () => void;
 }
 
-export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", onViewModeChange }: BrainHeaderProps) {
+export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", onViewModeChange, onOpenAnalyze }: BrainHeaderProps) {
   const totalNodes = stats?.totalNodes ?? 0;
   const connectionCount = stats?.connectionCount ?? 0;
 
@@ -66,6 +67,17 @@ export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", on
                   <span className="hidden sm:inline">Grid</span>
                 </button>
               </div>
+            )}
+
+            {onOpenAnalyze && (
+              <button
+                onClick={onOpenAnalyze}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:opacity-90 transition-opacity shadow-sm"
+                data-testid="button-open-analyze"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">AI 분석</span>
+              </button>
             )}
 
             <div className="hidden sm:flex items-center gap-4 text-sm">

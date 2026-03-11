@@ -2,12 +2,12 @@ import { type KnowledgeNode, LEVEL_NAMES, LEVEL_COLORS } from "@shared/schema";
 import { motion } from "framer-motion";
 import {
   Brain, Globe, Layers, BookOpen, Lightbulb, FileText, Link, Database,
-  ChevronRight, MoreHorizontal
+  ChevronRight, MoreHorizontal, Sparkles
 } from "lucide-react";
 import { useMemo } from "react";
 
 const ICON_MAP: Record<string, any> = {
-  Brain, Globe, Layers, BookOpen, Lightbulb, FileText, Link, Database
+  Brain, Globe, Layers, BookOpen, Lightbulb, FileText, Link, Database, Sparkles
 };
 
 interface NodeGridProps {

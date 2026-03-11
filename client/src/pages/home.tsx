@@ -6,6 +6,7 @@ import { BrainHeader } from "@/components/brain-header";
 import { NodeGrid } from "@/components/node-grid";
 import { NodeDetail } from "@/components/node-detail";
 import { AddNodeDialog } from "@/components/add-node-dialog";
+import { AnalyzeDialog } from "@/components/analyze-dialog";
 import { BreadcrumbNav } from "@/components/breadcrumb-nav";
 import { ConnectionPanel } from "@/components/connection-panel";
 import { MindMap } from "@/components/mind-map";
@@ -20,6 +21,7 @@ export default function Home() {
   const [currentPath, setCurrentPath] = useState<KnowledgeNode[]>([]);
   const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [analyzeDialogOpen, setAnalyzeDialogOpen] = useState(false);
   const [connectionPanelOpen, setConnectionPanelOpen] = useState(false);
 
   const currentParentId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : null;
@@ -82,6 +84,7 @@ export default function Home() {
         onOpenConnections={() => setConnectionPanelOpen(true)}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        onOpenAnalyze={() => setAnalyzeDialogOpen(true)}
       />
 
       <main className={viewMode === "mindmap" ? "px-4 sm:px-6 pb-6" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20"}>
@@ -228,6 +231,11 @@ export default function Home() {
           onOpenChange={setConnectionPanelOpen}
           connections={connections}
           allNodes={allNodes}
+        />
+
+        <AnalyzeDialog
+          open={analyzeDialogOpen}
+          onOpenChange={setAnalyzeDialogOpen}
         />
       </main>
     </div>

@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertNodeSchema, insertConnectionSchema } from "@shared/schema";
 import { ZodError } from "zod";
+import { analyzeText } from "./ai";
 
 function parseId(value: string): number | null {
   const num = parseInt(value, 10);
@@ -124,6 +125,32 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting connection:", error);
       return res.status(500).json({ message: "Failed to delete connection" });
+    }
+  });
+
+  app.post("/api/analyze", async (req, res) => {
+    try {
+      const { text, subjectId } = req.body;
+      if (!text || typeof text !== "string" || text.trim().length === 0) {
+        return res.status(400).json({ message: "Text is required" });
+      }
+      if (text.length > 50000) {
+        return res.status(400).json({ message: "Text is too long (max 50,000 characters)" });
+      }
+      let parsedSubjectId: number | undefined;
+      if (subjectId) {
+        const id = parseId(String(subjectId));
+        if (id === null) {
+          return res.status(400).json({ message: "Invalid subjectId" });
+        }
+        parsedSubjectId = id;
+      }
+      const result = await analyzeText(text.trim(), parsedSubjectId);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error analyzing text:", error);
+      const status = error.message?.includes("not found") || error.message?.includes("not a subject") ? 400 : 500;
+      return res.status(status).json({ message: error.message || "Failed to analyze text" });
     }
   });
 

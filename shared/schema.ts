@@ -5,13 +5,24 @@ import { z } from "zod";
 
 export const LEVEL_NAMES = [
   "Cogito",
-  "Domain",
-  "Field",
-  "Topic",
-  "Concept",
-  "Note",
-  "Reference",
+  "Subject",
+  "Wisdom",
+  "Knowledge",
+  "Information",
   "Data",
+  "Reference",
+  "Raw",
+] as const;
+
+export const LEVEL_LABELS_KO = [
+  "나 (Cogito)",
+  "대주제",
+  "지혜",
+  "지식",
+  "정보",
+  "데이터",
+  "참조",
+  "원문",
 ] as const;
 
 export const LEVEL_COLORS = [
@@ -28,12 +39,12 @@ export const LEVEL_COLORS = [
 export const LEVEL_ICONS = [
   "Brain",
   "Globe",
-  "Layers",
+  "Sparkles",
   "BookOpen",
   "Lightbulb",
-  "FileText",
-  "Link",
   "Database",
+  "Link",
+  "FileText",
 ] as const;
 
 export const knowledgeNodes = pgTable("knowledge_nodes", {
