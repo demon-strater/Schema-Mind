@@ -338,10 +338,13 @@ export function MindMap({
   }, []);
 
   const canPan = useCallback((e: React.PointerEvent) => {
-    return spaceHeld || e.ctrlKey || e.metaKey;
+    return spaceHeld || e.ctrlKey || e.metaKey || e.button === 1;
   }, [spaceHeld]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button === 1) {
+      e.preventDefault();
+    }
     if (canPan(e)) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
@@ -432,6 +435,8 @@ export function MindMap({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onAuxClick={(e) => e.preventDefault()}
+        onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
       >
         <defs>
           <radialGradient id="center-glow" cx="50%" cy="50%" r="50%">
