@@ -326,7 +326,7 @@ export function MindMap({
     const rect = svgEl.getBoundingClientRect();
     const scaleX = viewBox.w / rect.width;
     const scaleY = viewBox.h / rect.height;
-    const dragSensitivity = 0.2;
+    const dragSensitivity = 0.08;
     const dx = (e.clientX - panStart.x) * scaleX * dragSensitivity;
     const dy = (e.clientY - panStart.y) * scaleY * dragSensitivity;
     setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
