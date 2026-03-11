@@ -619,7 +619,7 @@ export function MindMap({
         })}
 
         {positionedNodes
-          .filter((pn) => pn.node.level === 1 && pn.node.content)
+          .filter((pn) => pn.node.level === 2 && pn.node.content)
           .map((pn) => {
             const cardW = 180;
             const cardH = 68;

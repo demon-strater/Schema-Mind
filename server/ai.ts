@@ -2,11 +2,14 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { storage } from "./storage";
 import { LEVEL_COLORS, LEVEL_ICONS } from "@shared/schema";
+import { TOP_CATEGORIES } from "./seed";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
+
+const categoryNames = TOP_CATEGORIES.map((c) => c.title);
 
 const analysisItemSchema = z.object({
   title: z.string().min(1),
@@ -16,8 +19,9 @@ const analysisItemSchema = z.object({
 });
 
 const analysisResultSchema = z.object({
-  subject: z.string().min(1),
-  subjectDescription: z.string().min(1),
+  category: z.string().min(1),
+  articleTitle: z.string().min(1),
+  articleDescription: z.string().min(1),
   items: z.array(analysisItemSchema).min(1),
   connections: z.array(z.object({
     from: z.string(),
@@ -33,47 +37,46 @@ const TIER_TO_LEVEL: Record<string, number> = {
   data: 5,
 };
 
-export async function analyzeText(text: string, existingSubjectId?: number): Promise<{ createdNodes: number; subjectTitle: string }> {
-  if (existingSubjectId !== undefined) {
-    const existingNode = await storage.getNode(existingSubjectId);
-    if (!existingNode) throw new Error("Subject node not found");
-    if (existingNode.level !== 1) throw new Error("Selected node is not a subject-level node");
-  }
+export async function analyzeText(text: string): Promise<{ createdNodes: number; subjectTitle: string; category: string; subjectId: number }> {
+  const allNodes = await storage.getAllNodes();
+  const categoryNodes = allNodes.filter((n) => n.level === 1 && n.parentId === null);
 
-  const prompt = `You are a knowledge architect. Analyze the following study text and organize it into a hierarchical knowledge structure.
+  const prompt = `You are a knowledge architect. Analyze the following text and:
 
-Classify every piece of information into exactly one of these 4 tiers (from most abstract to most concrete):
-- **wisdom** (지혜): Core principles, deep insights, universal truths, philosophical takeaways. These are the most abstract, highest-value insights.
-- **knowledge** (지식): Organized understanding, theories, frameworks, structured concepts that explain how things work.
-- **information** (정보): Contextual facts, specific explanations, definitions, descriptions with context.
-- **data** (데이터): Raw facts, numbers, quotes, specific examples, dates, names, concrete details.
+1. Determine which ONE of these 9 categories it belongs to:
+${categoryNames.map((name, i) => `   ${i + 1}. ${name}`).join("\n")}
 
-Also identify a main subject (대주제) that encompasses all the content.
+2. Create a concise article title (제목) that summarizes the text.
 
-Also identify meaningful connections between items across different tiers.
+3. Classify every piece of information into exactly one of these 4 tiers:
+- **wisdom** (지혜): Core principles, deep insights, universal truths, philosophical takeaways.
+- **knowledge** (지식): Organized understanding, theories, frameworks, structured concepts.
+- **information** (정보): Contextual facts, specific explanations, definitions.
+- **data** (데이터): Raw facts, numbers, quotes, specific examples, dates, names.
 
-Return ONLY valid JSON in this exact format:
+4. Identify meaningful connections between items across tiers.
+
+Return ONLY valid JSON:
 {
-  "subject": "Main Subject Title",
-  "subjectDescription": "Brief description of the main subject",
+  "category": "exact category name from the 9 options above",
+  "articleTitle": "concise title for this text",
+  "articleDescription": "one-line summary",
   "items": [
     {
-      "title": "Item title",
-      "description": "Brief summary",
-      "content": "Detailed content or original text excerpt",
+      "title": "item title",
+      "description": "brief summary",
+      "content": "detailed content or text excerpt",
       "tier": "wisdom|knowledge|information|data"
     }
   ],
   "connections": [
-    {
-      "from": "exact item title",
-      "to": "exact item title",
-      "reason": "why these are connected"
-    }
+    { "from": "item title", "to": "item title", "reason": "connection reason" }
   ]
 }
 
-Aim for 3-8 items total, distributed across the tiers. Every tier should have at least 1 item if the text has enough content.
+IMPORTANT: "category" must be EXACTLY one of: ${categoryNames.join(", ")}
+
+Aim for 3-8 items distributed across tiers.
 
 TEXT TO ANALYZE:
 ${text}`;
@@ -97,28 +100,31 @@ ${text}`;
 
   const result = analysisResultSchema.parse(parsed);
 
-  let subjectNode;
-  if (existingSubjectId) {
-    subjectNode = (await storage.getNode(existingSubjectId))!;
-    if (!subjectNode.content) {
-      await storage.updateNode(existingSubjectId, { content: text });
-    } else {
-      await storage.updateNode(existingSubjectId, {
-        content: subjectNode.content + "\n\n---\n\n" + text,
-      });
-    }
-  } else {
-    subjectNode = await storage.createNode({
-      parentId: null,
-      level: 1,
-      title: result.subject,
-      description: result.subjectDescription,
-      content: text,
-      color: LEVEL_COLORS[1],
-      icon: LEVEL_ICONS[1],
-      sortOrder: 0,
-    });
+  let categoryNode = categoryNodes.find(
+    (n) => n.title === result.category
+  );
+  if (!categoryNode) {
+    categoryNode = categoryNodes.find(
+      (n) => result.category.includes(n.title) || n.title.includes(result.category)
+    );
   }
+  if (!categoryNode) {
+    categoryNode = categoryNodes[0];
+  }
+
+  const articleNode = await storage.createNode({
+    parentId: categoryNode.id,
+    level: 2,
+    title: result.articleTitle,
+    description: result.articleDescription,
+    content: text,
+    color: LEVEL_COLORS[2],
+    icon: LEVEL_ICONS[2],
+    sortOrder: 0,
+  });
+
+  const createdNodeMap = new Map<string, number>();
+  createdNodeMap.set(result.articleTitle, articleNode.id);
 
   const itemsByTier: Record<string, typeof result.items> = {
     wisdom: [],
@@ -130,17 +136,14 @@ ${text}`;
     itemsByTier[item.tier].push(item);
   }
 
-  const createdNodeMap = new Map<string, number>();
-  createdNodeMap.set(result.subject, subjectNode.id);
-
   const tiers = ["wisdom", "knowledge", "information", "data"] as const;
-  let parentIdForTier = subjectNode.id;
+  let parentIdForTier = articleNode.id;
 
   for (const tier of tiers) {
     const items = itemsByTier[tier];
     if (items.length === 0) continue;
 
-    const level = TIER_TO_LEVEL[tier];
+    const level = TIER_TO_LEVEL[tier] + 1;
     let firstNodeId: number | null = null;
 
     for (const item of items) {
@@ -150,8 +153,8 @@ ${text}`;
         title: item.title,
         description: item.description,
         content: item.content || null,
-        color: LEVEL_COLORS[level],
-        icon: LEVEL_ICONS[level],
+        color: LEVEL_COLORS[Math.min(level, 7)],
+        icon: LEVEL_ICONS[Math.min(level, 7)],
         sortOrder: 0,
       });
       createdNodeMap.set(item.title, node.id);
@@ -176,8 +179,9 @@ ${text}`;
   }
 
   return {
-    createdNodes: result.items.length + (existingSubjectId ? 0 : 1),
-    subjectTitle: result.subject,
-    subjectId: subjectNode.id,
+    createdNodes: result.items.length + 1,
+    subjectTitle: result.articleTitle,
+    category: categoryNode.title,
+    subjectId: articleNode.id,
   };
 }

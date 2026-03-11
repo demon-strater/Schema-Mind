@@ -218,7 +218,7 @@ export default function Home() {
               onClose={() => setSelectedNode(null)}
               onDelete={() => deleteNodeMutation.mutate(selectedNode.id)}
               isDeleting={deleteNodeMutation.isPending}
-              onViewFullText={selectedNode.level === 1 && selectedNode.content ? () => setFullTextNode(selectedNode) : undefined}
+              onViewFullText={selectedNode.level === 2 && selectedNode.content ? () => setFullTextNode(selectedNode) : undefined}
             />
           )}
         </AnimatePresence>
