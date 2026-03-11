@@ -134,11 +134,6 @@ function layoutRadialTree(
   return positioned;
 }
 
-function truncateLabel(title: string, depth: number): string {
-  const maxLen = depth <= 1 ? 8 : depth === 2 ? 10 : 8;
-  if (title.length <= maxLen) return title;
-  return title.slice(0, maxLen - 1) + "…";
-}
 
 function CurvedLink({
   x1, y1, x2, y2, color, opacity, isConnection
@@ -525,7 +520,7 @@ export function MindMap({
             fontWeight="700"
             fontFamily="var(--font-sans)"
           >
-            {truncateLabel(centerLabel, 0)}
+            {centerLabel}
           </text>
           <text
             x="0"
@@ -623,7 +618,7 @@ export function MindMap({
                 fontFamily="var(--font-sans)"
                 opacity={isHovered || isSelected ? 1 : 0.8}
               >
-                {truncateLabel(pn.node.title, depth)}
+                {pn.node.title}
               </text>
 
               <text
