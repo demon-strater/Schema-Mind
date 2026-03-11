@@ -283,10 +283,11 @@ export function MindMap({
         const rect = svgEl.getBoundingClientRect();
         const scaleY = viewBox.h / rect.height;
         const scaleX = viewBox.w / rect.width;
+        const sensitivity = 0.3;
         setViewBox((v) => ({
           ...v,
-          x: v.x + (e.deltaX * scaleX),
-          y: v.y + (e.deltaY * scaleY),
+          x: v.x + (e.deltaX * scaleX * sensitivity),
+          y: v.y + (e.deltaY * scaleY * sensitivity),
         }));
       }
     };
@@ -338,8 +339,9 @@ export function MindMap({
     const rect = svgEl.getBoundingClientRect();
     const scaleX = viewBox.w / rect.width;
     const scaleY = viewBox.h / rect.height;
-    const dx = (e.clientX - panStart.x) * scaleX;
-    const dy = (e.clientY - panStart.y) * scaleY;
+    const dragSensitivity = 0.6;
+    const dx = (e.clientX - panStart.x) * scaleX * dragSensitivity;
+    const dy = (e.clientY - panStart.y) * scaleY * dragSensitivity;
     setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
     setPanStart({ x: e.clientX, y: e.clientY });
   }, [isPanning, panStart, viewBox]);
