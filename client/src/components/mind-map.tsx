@@ -804,7 +804,7 @@ export function MindMap({
           const isCategory = pn.node.level === 1;
 
           const FONT_SIZES: Record<number, number> = { 1: 15, 2: 13, 3: 12, 4: 11, 5: 10, 6: 9 };
-          const FONT_WEIGHTS: Record<number, number> = { 1: 700, 2: 600, 3: 500, 4: 500, 5: 400, 6: 400 };
+          const FONT_WEIGHTS: Record<number, number> = { 1: 500, 2: 400, 3: 400, 4: 300, 5: 300, 6: 300 };
           const fontSize = FONT_SIZES[depth] || 9;
           const fontWeight = FONT_WEIGHTS[depth] || 400;
 
