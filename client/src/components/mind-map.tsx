@@ -850,10 +850,10 @@ export function MindMap({
                 <div
                   className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-center leading-tight transition-all duration-200 ${
                     isArticle
-                      ? "border-2 border-violet-400 dark:border-violet-400 bg-gradient-to-br from-violet-500/15 to-violet-600/10 shadow-md shadow-violet-500/15 hover:shadow-violet-500/25 hover:border-violet-300"
+                      ? "border-2 border-violet-500 dark:border-violet-400 bg-violet-950/90 dark:bg-violet-950/90 shadow-md shadow-violet-500/20 hover:shadow-violet-500/35 hover:border-violet-300"
                       : isCategory
-                        ? "border-2 border-violet-500/70 dark:border-violet-400/60 bg-card/95 backdrop-blur-sm shadow-sm hover:shadow-md"
-                        : "border border-violet-400/50 dark:border-violet-300/40 bg-card/90 backdrop-blur-sm shadow-sm hover:shadow-md"
+                        ? "border-2 border-violet-500 dark:border-violet-400/80 bg-card shadow-sm hover:shadow-md"
+                        : "border border-violet-400/70 dark:border-violet-400/50 bg-card shadow-sm hover:shadow-md"
                   } ${isDragging ? "ring-2 ring-primary/40 scale-105" : ""} ${
                     isSelected ? "ring-2 ring-primary/60" : ""
                   } ${isHovered && !isDragging ? "scale-[1.03]" : ""}`}
@@ -866,13 +866,13 @@ export function MindMap({
                   data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
                 >
                   {isArticle && (
-                    <FileText style={{ width: 16, height: 16, flexShrink: 0 }} className="text-violet-400" />
+                    <FileText style={{ width: 14, height: 14, flexShrink: 0 }} className="text-violet-300" />
                   )}
                   <span
                     className={`leading-tight line-clamp-2 ${
-                      isArticle ? "text-violet-200 dark:text-violet-200" 
+                      isArticle ? "text-white" 
                       : isCategory ? "text-foreground" 
-                      : depth <= 4 ? "text-foreground/90" : "text-foreground/75"
+                      : "text-foreground"
                     }`}
                     style={{ fontSize, fontWeight }}
                   >
@@ -881,7 +881,7 @@ export function MindMap({
                 </div>
                 {(isHovered || isSelected) && !isDragging && (
                   <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 8) }}>
-                    <span className="text-muted-foreground font-mono">
+                    <span className="text-foreground/60 font-mono">
                       {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
                     </span>
                   </div>
