@@ -112,9 +112,9 @@ function layoutRadialTree(
   }
   if (rootChildren.length === 0) return positioned;
 
-  const MIN_ARC_SPACING = 100;
-  const BASE_RADIUS = 240;
-  const RADIUS_STEP = 220;
+  const MIN_ARC_SPACING = 150;
+  const BASE_RADIUS = 260;
+  const RADIUS_STEP = 255;
   const MIN_LEAF_WEIGHT = 3;
 
   const leafCache = new Map<number, number>();
@@ -894,7 +894,7 @@ export function MindMap({
           const fontWeight = FONT_WEIGHTS[depth] || 400;
 
           const BOX_SIZES: Record<number, [number, number]> = {
-            1: [150, 46], 2: [210, 54], 3: [180, 44], 4: [170, 40], 5: [155, 36], 6: [140, 34]
+            1: [126, 40], 2: [172, 48], 3: [152, 38], 4: [138, 34], 5: [124, 30], 6: [112, 28]
           };
           const [boxW, boxH] = BOX_SIZES[depth] || [140, 34];
           const bx = pos.x - boxW / 2;
@@ -944,6 +944,8 @@ export function MindMap({
                   } ${isHovered && !isDragging ? "scale-[1.03]" : ""}`}
                   style={{
                     minHeight: boxH,
+                    maxHeight: boxH,
+                    overflow: "hidden",
                     borderColor: isCategory
                       ? (nodeCategoryColorMap.get(pn.node.id) ?? undefined)
                       : !isArticle && (isSelected || isHovered) ? color : undefined,
