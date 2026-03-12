@@ -509,8 +509,8 @@ export function MindMap({
     const rect = svgEl.getBoundingClientRect();
     const scaleX = viewBox.w / rect.width;
     const scaleY = viewBox.h / rect.height;
-    const dx = (e.clientX - panStart.x) * scaleX;
-    const dy = (e.clientY - panStart.y) * scaleY;
+    const dx = (e.clientX - panStart.x) * scaleX * 1.4;
+    const dy = (e.clientY - panStart.y) * scaleY * 1.4;
     setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
     setPanStart({ x: e.clientX, y: e.clientY });
   }, [isPanning, panStart, viewBox]);
