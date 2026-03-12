@@ -221,7 +221,7 @@ function CurvedLink({
     <path
       d={`M ${x1} ${y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${x2} ${y2}`}
       stroke={color}
-      strokeWidth={1.8}
+      strokeWidth={2.2}
       fill="none"
       opacity={opacity}
       className="transition-opacity duration-300"
@@ -789,16 +789,24 @@ export function MindMap({
         <circle cx="0" cy="0" r="350" fill="url(#center-glow)" />
 
         {/* Category sector backgrounds */}
-        {sectorWedges.map(({ nodeId, d, color }) => (
-          <path
-            key={`sector-${nodeId}`}
-            d={d}
-            fill={color}
-            fillOpacity={0.055}
-            stroke={color}
-            strokeWidth={0.8}
-            strokeOpacity={0.22}
-          />
+        {sectorWedges.map(({ nodeId, d, color, a1, a2 }) => (
+          <g key={`sector-${nodeId}`}>
+            <path
+              d={d}
+              fill={color}
+              fillOpacity={0.1}
+              stroke="none"
+            />
+            {/* Boundary divider lines */}
+            <line
+              x1={110 * Math.cos(a2)} y1={110 * Math.sin(a2)}
+              x2={1900 * Math.cos(a2)} y2={1900 * Math.sin(a2)}
+              stroke={color}
+              strokeWidth={1}
+              strokeOpacity={0.35}
+              strokeDasharray="6 10"
+            />
+          </g>
         ))}
 
         {Array.from({ length: maxRing }, (_, i) => i + 1).map((ring) => (
@@ -939,8 +947,11 @@ export function MindMap({
                     borderColor: isCategory
                       ? (nodeCategoryColorMap.get(pn.node.id) ?? undefined)
                       : !isArticle && (isSelected || isHovered) ? color : undefined,
+                    backgroundColor: isCategory
+                      ? `${nodeCategoryColorMap.get(pn.node.id) ?? '#8B5CF6'}1A`
+                      : undefined,
                     boxShadow: isCategory
-                      ? `0 0 0 1px ${(nodeCategoryColorMap.get(pn.node.id) ?? '#8B5CF6')}22`
+                      ? `0 2px 8px ${(nodeCategoryColorMap.get(pn.node.id) ?? '#8B5CF6')}33`
                       : undefined,
                     transform: isDragging ? "scale(1.05)" : isHovered ? "scale(1.03)" : "scale(1)",
                     transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
