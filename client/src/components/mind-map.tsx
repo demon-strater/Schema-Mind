@@ -112,14 +112,16 @@ function layoutRadialTree(
   }
   if (rootChildren.length === 0) return positioned;
 
-  const BASE_RADIUS = 260;
-  const RADIUS_STEP = 255;
-  const MIN_LEAF_WEIGHT = 3;
+  const BASE_RADIUS = 300;
+  const RADIUS_STEP = 300;
+  // Force all categories to equal arc proportion so inter-category L2 nodes never crowd together
+  const MIN_LEAF_WEIGHT = 8;
 
-  // Per-depth box sizes – must match the rendered BOX_SIZES below
-  const LAYOUT_BOX_W: Record<number, number> = { 1: 126, 2: 172, 3: 152, 4: 138, 5: 104, 6: 90 };
-  const LAYOUT_BOX_H: Record<number, number> = { 1: 40,  2: 48,  3: 38,  4: 34,  5: 28,  6: 26 };
-  const SPACING_MARGIN = 20;
+  // Per-depth box sizes – must match the rendered BOX_SIZES below.
+  // L1 uses L2's box dims so that spacing at depth=1 accounts for L2 adjacency too.
+  const LAYOUT_BOX_W: Record<number, number> = { 1: 172, 2: 172, 3: 152, 4: 138, 5: 104, 6: 90 };
+  const LAYOUT_BOX_H: Record<number, number> = { 1: 48,  2: 48,  3: 38,  4: 34,  5: 28,  6: 26 };
+  const SPACING_MARGIN = 24;
 
   const leafCache = new Map<number, number>();
   function countLeaves(nodeId: number): number {
@@ -823,7 +825,7 @@ export function MindMap({
             key={ring}
             cx="0"
             cy="0"
-            r={220 * ring}
+            r={300 * ring}
             fill="none"
             stroke="hsl(var(--border))"
             strokeWidth="0.5"
