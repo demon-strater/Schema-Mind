@@ -874,7 +874,7 @@ export function MindMap({
                       : isCategory ? "text-foreground" 
                       : "text-foreground"
                     }`}
-                    style={{ fontSize, fontWeight }}
+                    style={{ fontSize, fontWeight, wordBreak: "keep-all", overflowWrap: "break-word" }}
                   >
                     {displayTitle}
                   </span>
