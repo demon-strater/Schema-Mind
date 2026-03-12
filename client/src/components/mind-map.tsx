@@ -509,8 +509,11 @@ export function MindMap({
     const rect = svgEl.getBoundingClientRect();
     const scaleX = viewBox.w / rect.width;
     const scaleY = viewBox.h / rect.height;
-    const dx = (e.clientX - panStart.x) * scaleX * 1.4;
-    const dy = (e.clientY - panStart.y) * scaleY * 1.4;
+    // Boost panning speed when zoomed in: sqrt(baseW / viewBox.w) so
+    // at 2× zoom the pan feels ~1.4× faster, at 4× zoom ~2× faster.
+    const zoomBoost = Math.sqrt(1200 / viewBox.w);
+    const dx = (e.clientX - panStart.x) * scaleX * 1.4 * zoomBoost;
+    const dy = (e.clientY - panStart.y) * scaleY * 1.4 * zoomBoost;
     setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
     setPanStart({ x: e.clientX, y: e.clientY });
   }, [isPanning, panStart, viewBox]);
