@@ -785,6 +785,18 @@ export function MindMap({
             <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.12" />
             <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
           </radialGradient>
+          {sectorWedges.map(({ nodeId, color }) => (
+            <radialGradient
+              key={`grad-${nodeId}`}
+              id={`sector-grad-${nodeId}`}
+              cx="0" cy="0" r="1600"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="6%" stopColor={color} stopOpacity="0.22" />
+              <stop offset="55%" stopColor={color} stopOpacity="0.08" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+            </radialGradient>
+          ))}
           <filter id="box-shadow" x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="0" dy="1" stdDeviation="3" floodColor="#8B5CF6" floodOpacity="0.12" />
           </filter>
@@ -802,23 +814,39 @@ export function MindMap({
         {/* Category sector backgrounds */}
         {sectorWedges.map(({ nodeId, d, color, a1, a2 }) => (
           <g key={`sector-${nodeId}`}>
+            {/* Gradient sector fill */}
             <path
               d={d}
-              fill={color}
-              fillOpacity={0.1}
+              fill={`url(#sector-grad-${nodeId})`}
               stroke="none"
             />
-            {/* Boundary divider lines */}
+            {/* Boundary divider lines – solid, more visible */}
             <line
-              x1={110 * Math.cos(a2)} y1={110 * Math.sin(a2)}
+              x1={108 * Math.cos(a2)} y1={108 * Math.sin(a2)}
               x2={1900 * Math.cos(a2)} y2={1900 * Math.sin(a2)}
               stroke={color}
-              strokeWidth={1}
-              strokeOpacity={0.35}
-              strokeDasharray="6 10"
+              strokeWidth={1.5}
+              strokeOpacity={0.55}
             />
           </g>
         ))}
+        {/* Inner arc rings per sector, colored by category */}
+        {sectorWedges.map(({ nodeId, color, a1, a2 }) => {
+          const R = 108;
+          const sweep = a2 - a1;
+          const large = sweep > Math.PI ? 1 : 0;
+          const [c1, s1, c2, s2] = [Math.cos(a1), Math.sin(a1), Math.cos(a2), Math.sin(a2)];
+          return (
+            <path
+              key={`inner-arc-${nodeId}`}
+              d={`M ${R*c1} ${R*s1} A ${R} ${R} 0 ${large} 1 ${R*c2} ${R*s2}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={2.5}
+              strokeOpacity={0.5}
+            />
+          );
+        })}
 
         {Array.from({ length: maxRing }, (_, i) => i + 1).map((ring) => (
           <circle
