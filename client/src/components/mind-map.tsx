@@ -112,10 +112,14 @@ function layoutRadialTree(
   }
   if (rootChildren.length === 0) return positioned;
 
-  const MIN_ARC_SPACING = 150;
   const BASE_RADIUS = 260;
   const RADIUS_STEP = 255;
   const MIN_LEAF_WEIGHT = 3;
+
+  // Per-depth box sizes – must match the rendered BOX_SIZES below
+  const LAYOUT_BOX_W: Record<number, number> = { 1: 126, 2: 172, 3: 152, 4: 138, 5: 104, 6: 90 };
+  const LAYOUT_BOX_H: Record<number, number> = { 1: 40,  2: 48,  3: 38,  4: 34,  5: 28,  6: 26 };
+  const SPACING_MARGIN = 20;
 
   const leafCache = new Map<number, number>();
   function countLeaves(nodeId: number): number {
@@ -152,6 +156,11 @@ function layoutRadialTree(
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const proportions = weights.map(w => totalWeight > 0 ? w / totalWeight : 1 / children.length);
 
+    // Compute minimum spacing from box diagonal so no two siblings ever overlap
+    const bw = LAYOUT_BOX_W[depth] ?? 90;
+    const bh = LAYOUT_BOX_H[depth] ?? 26;
+    const minArcSpacing = Math.sqrt(bw * bw + bh * bh) + SPACING_MARGIN;
+
     let r = baseR;
     if (children.length > 1) {
       for (let i = 0; i < children.length; i++) {
@@ -159,7 +168,7 @@ function layoutRadialTree(
         const halfArcI = angleRange * proportions[i] / 2;
         const halfArcJ = angleRange * proportions[j] / 2;
         const gapAngle = halfArcI + halfArcJ;
-        const neededR = MIN_ARC_SPACING / Math.max(gapAngle, 0.001);
+        const neededR = minArcSpacing / Math.max(gapAngle, 0.001);
         r = Math.max(r, neededR);
       }
     }
@@ -893,8 +902,9 @@ export function MindMap({
           const fontSize = FONT_SIZES[depth] || 9;
           const fontWeight = FONT_WEIGHTS[depth] || 400;
 
+          // Must match LAYOUT_BOX_W / LAYOUT_BOX_H in layoutRadialTree
           const BOX_SIZES: Record<number, [number, number]> = {
-            1: [126, 40], 2: [172, 48], 3: [152, 38], 4: [138, 34], 5: [124, 30], 6: [112, 28]
+            1: [126, 40], 2: [172, 48], 3: [152, 38], 4: [138, 34], 5: [104, 28], 6: [90, 26]
           };
           const [boxW, boxH] = BOX_SIZES[depth] || [140, 34];
           const bx = pos.x - boxW / 2;
@@ -933,7 +943,9 @@ export function MindMap({
                 style={{ pointerEvents: "auto", overflow: "visible" }}
               >
                 <div
-                  className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-center leading-tight transition-all duration-200 ${
+                  className={`flex items-center justify-center gap-1 rounded-md text-center leading-tight transition-all duration-200 ${
+                    depth >= 5 ? "px-1.5 py-0.5" : depth >= 3 ? "px-2 py-1" : "px-3 py-1.5"
+                  } ${
                     isArticle
                       ? "border-2 border-violet-500 dark:border-violet-400 bg-violet-950/90 dark:bg-violet-950/90 shadow-md shadow-violet-500/20 hover:shadow-violet-500/35 hover:border-violet-300"
                       : isCategory
