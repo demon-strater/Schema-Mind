@@ -70,6 +70,18 @@ const TIER_ICONS: Record<number, string> = {
   6: "📊",
 };
 
+const CATEGORY_PALETTE = [
+  "#F87171", // red
+  "#FB923C", // orange
+  "#FBBF24", // amber
+  "#4ADE80", // green
+  "#22D3EE", // cyan
+  "#60A5FA", // blue
+  "#A78BFA", // violet
+  "#F472B6", // pink
+  "#2DD4BF", // teal
+];
+
 function buildTree(
   allNodes: KnowledgeNode[],
   focusNodeId: number | null
@@ -289,6 +301,57 @@ export function MindMap({
     positionedNodes.forEach((pn) => m.set(pn.node.id, pn));
     return m;
   }, [positionedNodes]);
+
+  // Category color map: L1 nodeId → unique color
+  const categoryColorMap = useMemo(() => {
+    const map = new Map<number, string>();
+    const l1Nodes = allNodes.filter(n => n.level === 1).sort((a, b) => a.sortOrder - b.sortOrder);
+    l1Nodes.forEach((node, i) => map.set(node.id, CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]));
+    return map;
+  }, [allNodes]);
+
+  // Node → ancestor category color map
+  const nodeCategoryColorMap = useMemo(() => {
+    const map = new Map<number, string>();
+    const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+    allNodes.forEach(node => {
+      let cur: KnowledgeNode | undefined = node;
+      while (cur) {
+        if (cur.level === 1) { const c = categoryColorMap.get(cur.id); if (c) map.set(node.id, c); break; }
+        cur = cur.parentId != null ? nodeMap.get(cur.parentId) : undefined;
+      }
+    });
+    return map;
+  }, [allNodes, categoryColorMap]);
+
+  // Sector wedge paths for each L1 category
+  const sectorWedges = useMemo(() => {
+    const l1 = positionedNodes.filter(pn => pn.node.level === 1);
+    if (l1.length < 2) return [];
+    const norm = (a: number) => { while (a < -Math.PI / 2 - 0.001) a += Math.PI * 2; return a; };
+    const sorted = [...l1].sort((a, b) => norm(Math.atan2(a.y, a.x)) - norm(Math.atan2(b.y, b.x)));
+    const n = sorted.length;
+    const angles = sorted.map(pn => norm(Math.atan2(pn.y, pn.x)));
+    // boundary[i] = midpoint between category i and i+1
+    const boundaries = angles.map((a, i) => {
+      const next = i < n - 1 ? angles[i + 1] : angles[0] + Math.PI * 2;
+      return (a + next) / 2;
+    });
+    const INNER_R = 108;
+    const OUTER_R = 1900;
+    return sorted.map((pn, i) => {
+      const a1 = i === 0 ? boundaries[n - 1] - Math.PI * 2 : boundaries[i - 1];
+      const a2 = boundaries[i];
+      const sweep = a2 - a1;
+      const large = sweep > Math.PI ? 1 : 0;
+      const [c1, s1, c2, s2] = [Math.cos(a1), Math.sin(a1), Math.cos(a2), Math.sin(a2)];
+      const d = `M ${INNER_R*c1} ${INNER_R*s1} L ${OUTER_R*c1} ${OUTER_R*s1} A ${OUTER_R} ${OUTER_R} 0 ${large} 1 ${OUTER_R*c2} ${OUTER_R*s2} L ${INNER_R*c2} ${INNER_R*s2} A ${INNER_R} ${INNER_R} 0 ${large} 0 ${INNER_R*c1} ${INNER_R*s1} Z`;
+      const color = categoryColorMap.get(pn.node.id) ?? '#8B5CF6';
+      const labelAngle = (a1 + a2) / 2;
+      const labelR = INNER_R + 40;
+      return { nodeId: pn.node.id, d, color, labelAngle, labelR, a1, a2 };
+    });
+  }, [positionedNodes, categoryColorMap]);
 
   const parentEdges = useMemo(() => {
     return positionedNodes
@@ -725,6 +788,19 @@ export function MindMap({
 
         <circle cx="0" cy="0" r="350" fill="url(#center-glow)" />
 
+        {/* Category sector backgrounds */}
+        {sectorWedges.map(({ nodeId, d, color }) => (
+          <path
+            key={`sector-${nodeId}`}
+            d={d}
+            fill={color}
+            fillOpacity={0.055}
+            stroke={color}
+            strokeWidth={0.8}
+            strokeOpacity={0.22}
+          />
+        ))}
+
         {Array.from({ length: maxRing }, (_, i) => i + 1).map((ring) => (
           <circle
             key={ring}
@@ -768,6 +844,7 @@ export function MindMap({
             const parentPn = posMap.get(edge.parentNodeId);
             if (parentPn) parentPos = getNodePos(parentPn);
           }
+          const edgeColor = nodeCategoryColorMap.get(edge.childId) || edge.color;
           return (
             <CurvedLink
               key={edge.id}
@@ -775,8 +852,8 @@ export function MindMap({
               y1={parentPos.y}
               x2={childPos.x}
               y2={childPos.y}
-              color={edge.color}
-              opacity={0.6}
+              color={edgeColor}
+              opacity={0.65}
             />
           );
         })}
@@ -859,7 +936,12 @@ export function MindMap({
                   } ${isHovered && !isDragging ? "scale-[1.03]" : ""}`}
                   style={{
                     minHeight: boxH,
-                    borderColor: !isArticle && (isSelected || isHovered) ? color : undefined,
+                    borderColor: isCategory
+                      ? (nodeCategoryColorMap.get(pn.node.id) ?? undefined)
+                      : !isArticle && (isSelected || isHovered) ? color : undefined,
+                    boxShadow: isCategory
+                      ? `0 0 0 1px ${(nodeCategoryColorMap.get(pn.node.id) ?? '#8B5CF6')}22`
+                      : undefined,
                     transform: isDragging ? "scale(1.05)" : isHovered ? "scale(1.03)" : "scale(1)",
                     transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
                   }}
