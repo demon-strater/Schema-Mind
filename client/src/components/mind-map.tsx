@@ -236,6 +236,51 @@ function layoutRadialTree(
   }
 
   layoutChildren(rootId, -Math.PI / 2, Math.PI * 1.5, 1);
+
+  // ── Compact local subtree layout ──────────────────────────────────────────
+  // Replace the main-layout positions of L3+ nodes with positions computed
+  // relative to each L2 article, so the DIKW chain forms a tight "bouquet"
+  // around the article node instead of a wide radial fan.
+  const COMPACT: Array<{ step: number; maxSpread: number; boxDiag: number }> = [
+    { step: 220, maxSpread: 0.42, boxDiag: Math.sqrt(152 * 152 + 38 * 38) + 10 }, // L3
+    { step: 235, maxSpread: 0.38, boxDiag: Math.sqrt(138 * 138 + 34 * 34) + 10 }, // L4
+    { step: 200, maxSpread: 0.32, boxDiag: Math.sqrt(104 * 104 + 28 * 28) + 10 }, // L5
+    { step: 175, maxSpread: 0.28, boxDiag: Math.sqrt(90  * 90  + 26 * 26) + 10 }, // L6
+  ];
+
+  function placeCompact(
+    parentId: number,
+    px: number, py: number,
+    aimAngle: number,
+    lvl: number
+  ) {
+    const ch = childrenMap.get(parentId) || [];
+    if (ch.length === 0 || lvl >= COMPACT.length) return;
+    const { step, maxSpread, boxDiag } = COMPACT[lvl];
+    const n = ch.length;
+    const halfSpread =
+      n <= 1 ? 0 : Math.min(maxSpread, ((n - 1) / 2) * (boxDiag / step));
+    ch.forEach((child, i) => {
+      const angle =
+        n <= 1
+          ? aimAngle
+          : aimAngle - halfSpread + (2 * halfSpread / (n - 1)) * i;
+      const nx = px + step * Math.cos(angle);
+      const ny = py + step * Math.sin(angle);
+      const idx = positioned.findIndex(p => p.node.id === child.id);
+      if (idx >= 0) positioned[idx] = { ...positioned[idx], x: nx, y: ny };
+      placeCompact(child.id, nx, ny, angle, lvl + 1);
+    });
+  }
+
+  positioned
+    .filter(p => p.node.level === 2)
+    .forEach(l2pn => {
+      const aimAngle = Math.atan2(l2pn.y - centerY, l2pn.x - centerX);
+      placeCompact(l2pn.node.id, l2pn.x, l2pn.y, aimAngle, 0);
+    });
+  // ── end compact layout ────────────────────────────────────────────────────
+
   return positioned;
 }
 
@@ -947,17 +992,35 @@ export function MindMap({
 
         {/* Article subtree grouping outlines (convex hull blobs) */}
         {articleGroupPaths.map(({ id, path, color }) => (
-          <path
-            key={`article-group-${id}`}
-            d={path}
-            fill={color}
-            fillOpacity={0.04}
-            stroke={color}
-            strokeWidth={1.4}
-            strokeOpacity={0.32}
-            strokeDasharray="7 5"
-            strokeLinejoin="round"
-          />
+          <g key={`article-group-${id}`}>
+            {/* soft glow fill */}
+            <path
+              d={path}
+              fill={color}
+              fillOpacity={0.07}
+              stroke="none"
+            />
+            {/* solid outline */}
+            <path
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeWidth={2.2}
+              strokeOpacity={0.60}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {/* inner thin dash for texture */}
+            <path
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeWidth={0.8}
+              strokeOpacity={0.25}
+              strokeDasharray="5 8"
+              strokeLinejoin="round"
+            />
+          </g>
         ))}
 
         {connectionEdges.map((edge) => {
