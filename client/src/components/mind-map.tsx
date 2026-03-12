@@ -82,6 +82,48 @@ const CATEGORY_PALETTE = [
   "#2DD4BF", // teal
 ];
 
+type Pt = { x: number; y: number };
+function _cross(O: Pt, A: Pt, B: Pt) {
+  return (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
+}
+function convexHull(pts: Pt[]): Pt[] {
+  if (pts.length < 3) return pts;
+  const s = [...pts].sort((a, b) => a.x !== b.x ? a.x - b.x : a.y - b.y);
+  const lo: Pt[] = [];
+  for (const p of s) { while (lo.length >= 2 && _cross(lo[lo.length-2], lo[lo.length-1], p) <= 0) lo.pop(); lo.push(p); }
+  const hi: Pt[] = [];
+  for (const p of [...s].reverse()) { while (hi.length >= 2 && _cross(hi[hi.length-2], hi[hi.length-1], p) <= 0) hi.pop(); hi.push(p); }
+  return lo.slice(0, -1).concat(hi.slice(0, -1));
+}
+function smoothHullPath(hull: Pt[], smoothPad = 18): string {
+  const n = hull.length;
+  if (n === 0) return '';
+  if (n === 1) return `M ${hull[0].x} ${hull[0].y}`;
+  if (n === 2) {
+    const [a, b] = hull;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)} Z`;
+  }
+  const cx = hull.reduce((s, p) => s + p.x, 0) / n;
+  const cy = hull.reduce((s, p) => s + p.y, 0) / n;
+  const exp = hull.map(p => {
+    const dx = p.x - cx, dy = p.y - cy;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    return { x: p.x + (dx / len) * smoothPad, y: p.y + (dy / len) * smoothPad };
+  });
+  const mids = exp.map((p, i) => {
+    const q = exp[(i + 1) % n];
+    return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+  });
+  let d = `M ${mids[0].x.toFixed(1)} ${mids[0].y.toFixed(1)}`;
+  for (let i = 0; i < n; i++) {
+    const corner = exp[(i + 1) % n];
+    const nxt = mids[(i + 1) % n];
+    d += ` Q ${corner.x.toFixed(1)} ${corner.y.toFixed(1)} ${nxt.x.toFixed(1)} ${nxt.y.toFixed(1)}`;
+  }
+  return d + ' Z';
+}
+
 function buildTree(
   allNodes: KnowledgeNode[],
   focusNodeId: number | null
@@ -363,6 +405,42 @@ export function MindMap({
       return { nodeId: pn.node.id, d, color, labelAngle, labelR, a1, a2 };
     });
   }, [positionedNodes, categoryColorMap]);
+
+  // Per-article convex hull grouping outlines
+  // nodeOffsets.current is always up-to-date because forceUpdate triggers re-renders
+  const articleGroupPaths = (() => {
+    const BOX_HW: Record<number, [number, number]> = {
+      1: [63, 20], 2: [86, 24], 3: [76, 19], 4: [69, 17], 5: [52, 14], 6: [45, 13],
+    };
+    const PAD = 28;
+    const l2Nodes = positionedNodes.filter(pn => pn.node.level === 2);
+    return l2Nodes.map(l2pn => {
+      const pts: Pt[] = [];
+      const visited = new Set<number>();
+      function collect(id: number) {
+        if (visited.has(id)) return;
+        visited.add(id);
+        const pn = posMap.get(id);
+        if (!pn) return;
+        const off = nodeOffsets.current.get(id) ?? { x: 0, y: 0 };
+        const cx = pn.x + off.x, cy = pn.y + off.y;
+        const [hw, hh] = BOX_HW[pn.node.level] ?? [60, 18];
+        pts.push(
+          { x: cx - hw - PAD, y: cy - hh - PAD },
+          { x: cx + hw + PAD, y: cy - hh - PAD },
+          { x: cx + hw + PAD, y: cy + hh + PAD },
+          { x: cx - hw - PAD, y: cy + hh + PAD },
+        );
+        positionedNodes.filter(p => p.node.parentId === id).forEach(c => collect(c.node.id));
+      }
+      collect(l2pn.node.id);
+      if (pts.length < 4) return null;
+      const hull = convexHull(pts);
+      const path = smoothHullPath(hull, 20);
+      const color = nodeCategoryColorMap.get(l2pn.node.id) ?? '#8B5CF6';
+      return { id: l2pn.node.id, path, color };
+    }).filter((g): g is NonNullable<typeof g> => g !== null);
+  })();
 
   const parentEdges = useMemo(() => {
     return positionedNodes
@@ -862,6 +940,21 @@ export function MindMap({
             strokeWidth="0.5"
             opacity="0.3"
             strokeDasharray="3 8"
+          />
+        ))}
+
+        {/* Article subtree grouping outlines (convex hull blobs) */}
+        {articleGroupPaths.map(({ id, path, color }) => (
+          <path
+            key={`article-group-${id}`}
+            d={path}
+            fill={color}
+            fillOpacity={0.04}
+            stroke={color}
+            strokeWidth={1.4}
+            strokeOpacity={0.32}
+            strokeDasharray="7 5"
+            strokeLinejoin="round"
           />
         ))}
 
