@@ -4,9 +4,15 @@ import { storage } from "./storage";
 import { LEVEL_COLORS, LEVEL_ICONS } from "@shared/schema";
 import { TOP_CATEGORIES } from "./seed";
 
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+  throw new Error("OPENAI_API_KEY must be set.");
+}
+
+const baseURL = process.env.OPENAI_BASE_URL;
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey,
+  ...(baseURL ? { baseURL } : {}),
 });
 
 const categoryNames = TOP_CATEGORIES.map((c) => c.title);

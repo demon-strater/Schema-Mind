@@ -3,6 +3,13 @@
 ## Overview
 SchemaMind is a hierarchical digital brain application for organizing and connecting knowledge. It uses 9 fixed top-level categories (based on Korean Decimal Classification) and AI-powered text analysis that auto-categorizes pasted text into the DIKW hierarchy.
 
+## Local Docker Run
+1. Create `.env` from `.env.example` and set `OPENAI_API_KEY`.
+2. Start services: `docker compose up -d db`
+3. Initialize schema (one time): `docker compose run --rm app npm run db:push`
+4. Run app: `docker compose up app`
+5. Open `http://localhost:5000`
+
 ## Architecture
 - **Frontend:** React + TypeScript with Tailwind CSS, Framer Motion for animations, wouter for routing
 - **Backend:** Express.js with RESTful API
