@@ -1,0 +1,28 @@
+databases:
+  - name: schemamind-db
+    databaseName: schemamind
+    user: schemamind
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: schemamind
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    preDeployCommand: npm run db:push
+    startCommand: npm run start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: schemamind-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
