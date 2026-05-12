@@ -1,4 +1,4 @@
-import { Brain, Zap, Network, LayoutGrid, GitBranch, Sparkles } from "lucide-react";
+import { Brain, Zap, Network, LayoutGrid, GitBranch, Sparkles, Activity } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface BrainHeaderProps {
@@ -14,91 +14,82 @@ export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", on
   const connectionCount = stats?.connectionCount ?? 0;
 
   return (
-    <header className="relative overflow-hidden border-b border-border/50" data-testid="brain-header">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/3 pointer-events-none" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[200px] bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div className="flex items-center justify-between">
+    <header className="fixed top-0 left-0 w-full z-[40] pointer-events-none" data-testid="brain-header">
+      <div className="max-w-[100vw] mx-auto px-6 py-6 flex justify-between items-start">
+        {/* Left HUD: Title & Stats */}
+        <div className="flex flex-col gap-1 pointer-events-auto group">
           <div className="flex items-center gap-3">
-            <motion.div
-              initial={{ rotate: -10 }}
-              animate={{ rotate: 0 }}
-              className="relative"
-            >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
-                <Brain className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-background" />
-            </motion.div>
-            <div>
-              <h1 className="text-lg font-bold text-foreground tracking-tight" data-testid="text-app-title">
-                SchemaMind
-              </h1>
-              <p className="text-[11px] text-muted-foreground">Digital Brain · 8-Level Knowledge</p>
-            </div>
+             <div className="w-1 h-8 bg-current opacity-20" />
+             <div>
+                <h1 className="text-2xl font-black uppercase tracking-[-0.02em] leading-none text-foreground" data-testid="text-app-title">
+                  SchemaMind
+                </h1>
+                <div className="flex items-center gap-2 mt-1">
+                  <Activity className="w-3 h-3 opacity-40 animate-pulse" />
+                  <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">Operational_v1.0.4</span>
+                </div>
+             </div>
           </div>
+          
+          <div className="mt-6 space-y-1 font-mono text-[9px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+             <div className="flex justify-between w-32 border-b border-foreground/5 pb-1"><span>Nodes:</span> <span className="font-bold">{totalNodes}</span></div>
+             <div className="flex justify-between w-32 border-b border-foreground/5 pb-1"><span>Links:</span> <span className="font-bold">{connectionCount}</span></div>
+             <div className="flex justify-between w-32"><span>Latency:</span> <span className="text-green-500">14ms</span></div>
+          </div>
+        </div>
 
-          <div className="flex items-center gap-3">
+        {/* Right HUD: Controls */}
+        <div className="flex flex-col items-end gap-4 pointer-events-auto">
+          {onOpenAnalyze && (
+            <button
+              onClick={onOpenAnalyze}
+              className="px-6 py-2 bg-foreground text-background text-[10px] font-black uppercase tracking-[0.2em] hover:scale-105 transition-transform active:scale-95"
+              data-testid="button-open-analyze"
+            >
+              [ Run_AI_Analysis ]
+            </button>
+          )}
+
+          <div className="flex gap-2">
             {onViewModeChange && (
-              <div className="flex items-center bg-muted/50 rounded-lg p-0.5 border border-border/50">
+              <div className="flex border border-foreground/10 bg-background/40 backdrop-blur-xl">
                 <button
                   onClick={() => onViewModeChange("mindmap")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    viewMode === "mindmap"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                  className={`px-4 py-2 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                    viewMode === "mindmap" ? "bg-foreground text-background" : "text-foreground/40 hover:text-foreground"
                   }`}
                   data-testid="button-view-mindmap"
                 >
-                  <GitBranch className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Mind Map</span>
+                  Graph
                 </button>
                 <button
                   onClick={() => onViewModeChange("grid")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    viewMode === "grid"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                  className={`px-4 py-2 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                    viewMode === "grid" ? "bg-foreground text-background" : "text-foreground/40 hover:text-foreground"
                   }`}
                   data-testid="button-view-grid"
                 >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Grid</span>
+                  Grid
                 </button>
               </div>
             )}
-
-            {onOpenAnalyze && (
-              <button
-                onClick={onOpenAnalyze}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:opacity-90 transition-opacity shadow-sm"
-                data-testid="button-open-analyze"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">AI 분석</span>
-              </button>
-            )}
-
-            <div className="hidden sm:flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-1.5 text-muted-foreground">
-                <Zap className="w-3.5 h-3.5 text-primary" />
-                <span className="font-medium" data-testid="text-total-nodes">{totalNodes}</span>
-                <span className="text-xs">nodes</span>
-              </div>
-              <button
-                onClick={onOpenConnections}
-                className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                data-testid="button-open-connections"
-              >
-                <Network className="w-3.5 h-3.5 text-chart-2" />
-                <span className="font-medium" data-testid="text-connections">{connectionCount}</span>
-                <span className="text-xs">links</span>
-              </button>
-            </div>
+            
+            <button
+              onClick={onOpenConnections}
+              className="px-4 py-2 border border-foreground/10 bg-background/40 backdrop-blur-xl text-[9px] font-bold uppercase tracking-widest text-foreground/40 hover:text-foreground transition-all"
+              data-testid="button-open-connections"
+            >
+              Connections
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Viewport Frame Brackets */}
+      <div className="fixed top-4 left-4 w-12 h-12 border-t border-l border-foreground/10 pointer-events-none" />
+      <div className="fixed top-4 right-4 w-12 h-12 border-t border-r border-foreground/10 pointer-events-none" />
+      <div className="fixed bottom-4 left-4 w-12 h-12 border-b border-l border-foreground/10 pointer-events-none" />
+      <div className="fixed bottom-4 right-4 w-12 h-12 border-b border-r border-foreground/10 pointer-events-none" />
     </header>
   );
 }

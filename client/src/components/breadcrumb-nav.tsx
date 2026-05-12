@@ -24,7 +24,7 @@ export function BreadcrumbNav({ path, currentLevel, onNavigate }: BreadcrumbNavP
           data-testid="breadcrumb-root"
         >
           <Home className="w-3.5 h-3.5" />
-          Cogito
+          홈
         </motion.button>
 
         {path.map((node, index) => (
@@ -54,7 +54,7 @@ export function BreadcrumbNav({ path, currentLevel, onNavigate }: BreadcrumbNavP
         {currentLevel > 0 && (
           <div className="ml-2 flex items-center">
             <span className="text-[10px] font-mono text-muted-foreground bg-muted/50 px-2 py-0.5 rounded">
-              {LEVEL_NAMES[currentLevel]}
+              현재 레벨: {LEVEL_NAMES[currentLevel]}
             </span>
           </div>
         )}
@@ -62,15 +62,10 @@ export function BreadcrumbNav({ path, currentLevel, onNavigate }: BreadcrumbNavP
 
       <div className="mt-3 flex gap-0.5" data-testid="level-indicator">
         {LEVEL_NAMES.map((name, i) => (
-          <div
-            key={name}
-            className="relative group flex-1"
-          >
+          <div key={name} className="relative group flex-1">
             <div
               className={`h-1 rounded-full transition-all duration-300 ${
-                i <= currentLevel
-                  ? "bg-primary"
-                  : "bg-muted"
+                i <= currentLevel ? "bg-primary" : "bg-muted"
               }`}
               style={{
                 opacity: i <= currentLevel ? 1 - i * 0.08 : 0.3,

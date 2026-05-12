@@ -1,5 +1,18 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Brain,
+  Sparkles,
+  Network,
+  LayoutGrid,
+  GitBranch,
+  Home as HomeIcon,
+  ChevronRight,
+  ArrowRight,
+  Plus,
+  Compass
+} from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { type KnowledgeNode, type Connection, LEVEL_NAMES } from "@shared/schema";
 import { NodeGrid } from "@/components/node-grid";
@@ -10,11 +23,13 @@ import { BreadcrumbNav } from "@/components/breadcrumb-nav";
 import { ConnectionPanel } from "@/components/connection-panel";
 import { MindMap } from "@/components/mind-map";
 import { Skeleton } from "@/components/ui/skeleton";
-import { motion, AnimatePresence } from "framer-motion";
-import { Brain, Sparkles, Network, Zap, LayoutGrid, GitBranch, Home as HomeIcon, ChevronRight } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type ViewMode = "mindmap" | "grid";
+
+function levelLabel(level: number) {
+  return LEVEL_NAMES[level] ?? `Level ${level}`;
+}
 
 export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>("mindmap");
@@ -26,8 +41,14 @@ export default function Home() {
 
   const currentParentId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : null;
   const currentLevel = currentPath.length;
+  const currentTitle = currentLevel === 0 ? "Atlas Core" : currentPath[currentPath.length - 1]?.title ?? "Branch";
+  const currentSubtitle =
+    currentLevel === 0
+      ? "Discover the structure of knowledge through an interactive neural map."
+      : `Exploring depths of "${currentTitle}" architecture.`;
 
   const parentQueryParam = currentParentId !== null ? `?parentId=${currentParentId}` : "";
+
   const { data: nodes = [], isLoading: nodesLoading } = useQuery<KnowledgeNode[]>({
     queryKey: ["/api/nodes", currentParentId ?? "root"],
     queryFn: async () => {
@@ -79,334 +100,248 @@ export default function Home() {
 
   const totalNodes = stats?.totalNodes ?? 0;
   const connectionCount = stats?.connectionCount ?? 0;
-
-  if (viewMode === "mindmap") {
-    return (
-      <div className="fixed inset-0 bg-background" data-testid="home-page">
-        <MindMap
-          allNodes={allNodes}
-          connections={connections}
-          onNodeSelect={handleNodeClick}
-          onNodeZoom={handleZoomIn}
-          selectedNode={selectedNode}
-          focusNodeId={currentParentId}
-          onAddNode={() => setAnalyzeDialogOpen(true)}
-          fullscreen
-        />
-
-        <div className="fixed top-4 left-4 z-20 flex items-center gap-3" data-testid="floating-header">
-          <div className="flex items-center gap-2.5 bg-card/90 backdrop-blur-md border border-border/60 rounded-xl px-3 py-2 shadow-lg">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-md shadow-primary/20">
-              <Brain className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <div className="hidden sm:block">
-              <h1 className="text-sm font-bold text-foreground tracking-tight leading-none" data-testid="text-app-title">
-                SchemaMind
-              </h1>
-              <p className="text-[9px] text-muted-foreground leading-none mt-0.5">Digital Brain</p>
-            </div>
-          </div>
-        </div>
-
-        {currentPath.length > 0 && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-20" data-testid="floating-breadcrumb">
-            <div className="flex items-center gap-1 bg-card/90 backdrop-blur-md border border-border/60 rounded-xl px-3 py-1.5 shadow-lg text-xs">
-              <button
-                onClick={() => handleZoomOut(0)}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                data-testid="breadcrumb-root"
-              >
-                <HomeIcon className="w-3 h-3" />
-                <span className="hidden sm:inline">Cogito</span>
-              </button>
-              {currentPath.map((node, index) => (
-                <div key={node.id} className="flex items-center gap-1">
-                  <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
-                  <button
-                    onClick={() => handleZoomOut(index + 1)}
-                    className={`px-2 py-1 rounded-md transition-colors whitespace-nowrap max-w-[120px] truncate ${
-                      index === currentPath.length - 1
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    }`}
-                    data-testid={`breadcrumb-item-${node.id}`}
-                  >
-                    {node.title}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="fixed top-4 right-4 z-20 flex items-center gap-2" data-testid="floating-controls">
-          <div className="flex items-center gap-1 bg-card/90 backdrop-blur-md border border-border/60 rounded-xl px-1.5 py-1 shadow-lg">
-            <button
-              onClick={() => setViewMode("mindmap")}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground shadow-sm"
-              data-testid="button-view-mindmap"
-            >
-              <GitBranch className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setViewMode("grid")}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-              data-testid="button-view-grid"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <button
-            onClick={() => setAnalyzeDialogOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:opacity-90 transition-opacity shadow-lg"
-            data-testid="button-open-analyze"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">AI 분석</span>
-          </button>
-
-          <ThemeToggle />
-        </div>
-
-        <div className="fixed bottom-4 left-4 z-20" data-testid="floating-stats">
-          <div className="flex items-center gap-3 bg-card/90 backdrop-blur-md border border-border/60 rounded-xl px-3 py-2 shadow-lg text-xs">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Zap className="w-3 h-3 text-primary" />
-              <span className="font-medium" data-testid="text-total-nodes">{totalNodes}</span>
-              <span className="text-[10px]">nodes</span>
-            </div>
-            <button
-              onClick={() => setConnectionPanelOpen(true)}
-              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              data-testid="button-open-connections"
-            >
-              <Network className="w-3 h-3 text-chart-2" />
-              <span className="font-medium" data-testid="text-connections">{connectionCount}</span>
-              <span className="text-[10px]">links</span>
-            </button>
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {selectedNode && (
-            <NodeDetail
-              node={selectedNode}
-              connections={connections.filter(
-                (c) => c.sourceId === selectedNode.id || c.targetId === selectedNode.id
-              )}
-              allNodes={allNodes}
-              onClose={() => setSelectedNode(null)}
-              onDelete={() => deleteNodeMutation.mutate(selectedNode.id)}
-              isDeleting={deleteNodeMutation.isPending}
-            />
-          )}
-        </AnimatePresence>
-
-        <AddNodeDialog
-          open={addDialogOpen}
-          onOpenChange={setAddDialogOpen}
-          parentId={currentParentId}
-          level={currentLevel + 1}
-        />
-
-        <ConnectionPanel
-          open={connectionPanelOpen}
-          onOpenChange={setConnectionPanelOpen}
-          connections={connections}
-          allNodes={allNodes}
-        />
-
-        <AnalyzeDialog
-          open={analyzeDialogOpen}
-          onOpenChange={setAnalyzeDialogOpen}
-        />
-
-      </div>
-    );
-  }
+  const isEmpty = allNodes.length === 0;
 
   return (
-    <div className="min-h-screen bg-background" data-testid="home-page">
-      <header className="relative overflow-hidden border-b border-border/50" data-testid="brain-header">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/3 pointer-events-none" />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
-                <Brain className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold text-foreground tracking-tight" data-testid="text-app-title">SchemaMind</h1>
-                <p className="text-[11px] text-muted-foreground">Digital Brain · Knowledge Hierarchy</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center bg-muted/50 rounded-lg p-0.5 border border-border/50">
-                <button
-                  onClick={() => setViewMode("mindmap")}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
-                  data-testid="button-view-mindmap"
-                >
-                  <GitBranch className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Mind Map</span>
-                </button>
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground shadow-sm"
-                  data-testid="button-view-grid"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Grid</span>
-                </button>
-              </div>
-              <button
-                onClick={() => setAnalyzeDialogOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:opacity-90 transition-opacity shadow-sm"
-                data-testid="button-open-analyze"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">AI 분석</span>
-              </button>
-              <ThemeToggle />
-              <div className="hidden sm:flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Zap className="w-3.5 h-3.5 text-primary" />
-                  <span className="font-medium" data-testid="text-total-nodes">{totalNodes}</span>
-                  <span className="text-xs">nodes</span>
-                </div>
-                <button
-                  onClick={() => setConnectionPanelOpen(true)}
-                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                  data-testid="button-open-connections"
-                >
-                  <Network className="w-3.5 h-3.5 text-chart-2" />
-                  <span className="font-medium" data-testid="text-connections">{connectionCount}</span>
-                  <span className="text-xs">links</span>
-                </button>
-              </div>
-            </div>
-          </div>
+    <div className={`fixed inset-0 overflow-hidden transition-colors duration-700 ${viewMode === 'mindmap' ? 'bg-[#05070a]' : 'bg-[#f8fafc] dark:bg-[#05070a]'}`}>
+      
+      {/* Background patterns for Grid view */}
+      {viewMode === 'grid' && (
+        <div className="absolute inset-0 pointer-events-none opacity-40 dark:opacity-10">
+          <div className="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:24px_24px]" />
         </div>
-      </header>
+      )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
-        <BreadcrumbNav
-          path={currentPath}
-          currentLevel={currentLevel}
-          onNavigate={handleZoomOut}
-        />
-        <div className="mt-6 flex items-center justify-between">
-          <div>
-            <motion.h2
-              key={currentLevel}
+      {/* Main Content Area */}
+      <div className="relative h-full w-full">
+        <AnimatePresence mode="wait">
+          {viewMode === "mindmap" ? (
+            <motion.div
+              key="mindmap"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.8 }}
+              className="h-full w-full"
+            >
+              <MindMap
+                allNodes={allNodes}
+                connections={connections}
+                onNodeSelect={handleNodeClick}
+                onNodeZoom={handleZoomIn}
+                selectedNode={selectedNode}
+                focusNodeId={currentParentId}
+                onAddNode={() => setAnalyzeDialogOpen(true)}
+                fullscreen
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="grid"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-2xl font-bold text-foreground"
-              data-testid="level-title"
+              exit={{ opacity: 0, y: -10 }}
+              className="h-full w-full overflow-y-auto pt-28 pb-32 px-10"
             >
-              {currentLevel === 0
-                ? "Cogito — Your Knowledge Universe"
-                : `${LEVEL_NAMES[currentLevel]} Level`}
-            </motion.h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {currentLevel === 0
-                ? "Explore your digital brain from the highest level"
-                : `Viewing children of "${currentPath[currentPath.length - 1]?.title}"`}
-            </p>
-          </div>
-          {currentLevel < 7 && (
-            <button
-              onClick={() => setAddDialogOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
-              data-testid="button-add-node"
-            >
-              <span className="text-lg">+</span>
-              Add {LEVEL_NAMES[currentLevel + 1] ?? "Node"}
-            </button>
-          )}
-        </div>
+              <div className="max-w-7xl mx-auto">
+                <header className="mb-16">
+                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-sm bg-cyan-500/10 text-cyan-400 text-[9px] font-bold uppercase tracking-[0.3em] mb-4 border border-cyan-500/20">
+                      <Compass className="h-3 w-3" />
+                      DATA_GRID_EXPLORER
+                   </div>
+                   <h2 className="text-5xl font-black tracking-tighter text-slate-900 dark:text-white mb-6 uppercase">
+                      {isEmpty ? "Initialize Atlas" : currentTitle}
+                   </h2>
+                   <p className="text-sm font-mono text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed uppercase opacity-60">
+                      {isEmpty 
+                        ? "Waiting for document upload. AI-Core will architect thoughts into a structured neural network."
+                        : `Sub-structural mapping: ${currentSubtitle}`}
+                   </p>
+                </header>
 
-        {nodesLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
-            {[...Array(6)].map((_, i) => (
-              <Skeleton key={i} className="h-48 rounded-xl" />
-            ))}
-          </div>
-        ) : nodes.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="mt-12 text-center py-20"
-            data-testid="empty-state"
-          >
-            <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mb-6">
-              <span className="text-4xl opacity-60">🧠</span>
-            </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">
-              {currentLevel === 0 ? "Start Building Your Digital Brain" : "No nodes at this level yet"}
-            </h3>
-            <p className="text-muted-foreground max-w-md mx-auto mb-8">
-              {currentLevel === 0
-                ? "Add your first domain to begin organizing your knowledge."
-                : `Add your first ${LEVEL_NAMES[currentLevel + 1]?.toLowerCase() ?? "node"} to expand this branch.`}
-            </p>
-            {currentLevel < 7 && (
-              <button
-                onClick={() => setAddDialogOpen(true)}
-                className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
-                data-testid="button-add-first-node"
-              >
-                + Add Your First {LEVEL_NAMES[currentLevel + 1] ?? "Node"}
-              </button>
-            )}
-          </motion.div>
-        ) : (
-          <NodeGrid
-            nodes={nodes}
-            currentLevel={currentLevel}
-            selectedNode={selectedNode}
-            onNodeClick={handleNodeClick}
-            onZoomIn={handleZoomIn}
-            allNodes={allNodes}
-          />
-        )}
-
-        <AnimatePresence>
-          {selectedNode && (
-            <NodeDetail
-              node={selectedNode}
-              connections={connections.filter(
-                (c) => c.sourceId === selectedNode.id || c.targetId === selectedNode.id
-              )}
-              allNodes={allNodes}
-              onClose={() => setSelectedNode(null)}
-              onDelete={() => deleteNodeMutation.mutate(selectedNode.id)}
-              isDeleting={deleteNodeMutation.isPending}
-            />
+                {nodesLoading ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {[...Array(6)].map((_, i) => (
+                      <Skeleton key={i} className="h-72 rounded-[4px] dark:bg-white/5 border border-white/5" />
+                    ))}
+                  </div>
+                ) : nodes.length === 0 ? (
+                  <div className="py-32 flex flex-col items-center text-center rounded-sm border border-dashed border-slate-200 dark:border-white/10 bg-white/50 dark:bg-white/2 backdrop-blur-sm">
+                    <div className="w-16 h-16 rounded-full border border-cyan-500/30 flex items-center justify-center mb-8 animate-pulse">
+                      <Sparkles className="h-6 w-6 text-cyan-400" />
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white mb-4 tracking-widest uppercase">
+                       {currentLevel === 0 ? "Neural Map Empty" : "Branch Vacant"}
+                    </h3>
+                    <div className="flex gap-4">
+                       <button 
+                        onClick={() => setAnalyzeDialogOpen(true)}
+                        className="px-8 py-3 bg-cyan-500 text-black text-[10px] font-black uppercase tracking-widest hover:bg-cyan-400 transition-all"
+                       >
+                         Execute AI Analysis
+                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <NodeGrid
+                    nodes={nodes}
+                    currentLevel={currentLevel}
+                    selectedNode={selectedNode}
+                    onNodeClick={handleNodeClick}
+                    onZoomIn={handleZoomIn}
+                    allNodes={allNodes}
+                  />
+                )}
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
 
-        <AddNodeDialog
-          open={addDialogOpen}
-          onOpenChange={setAddDialogOpen}
-          parentId={currentParentId}
-          level={currentLevel + 1}
-        />
+        {/* Floating Top Header (Technical HUD) */}
+        <div className="fixed top-0 left-0 right-0 z-50 p-8 flex justify-between items-start pointer-events-none">
+          <div className="flex items-start gap-6 pointer-events-auto">
+            <div className="px-6 py-4 bg-black/40 backdrop-blur-3xl border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+               <div className="flex items-center gap-4">
+                  <div className="w-8 h-8 rounded-sm bg-cyan-500 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.5)]">
+                     <Brain className="h-4 w-4 text-black" />
+                  </div>
+                  <div>
+                     <div className="text-[8px] font-black uppercase tracking-[0.4em] text-cyan-400/80">SCHEMAMIND</div>
+                     <div className="text-xs font-bold text-white tracking-widest uppercase">ATLAS_PROTOCOL</div>
+                  </div>
+               </div>
+            </div>
+            
+            <AnimatePresence>
+              {currentPath.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="hidden xl:flex items-center gap-1 p-1 bg-black/40 backdrop-blur-3xl border border-white/10"
+                >
+                  <button
+                    onClick={() => handleZoomOut(0)}
+                    className="p-2 text-cyan-400 hover:bg-cyan-500/10 transition-all"
+                  >
+                    <HomeIcon className="h-3 w-3" />
+                  </button>
+                  {currentPath.map((node, index) => (
+                    <div key={node.id} className="flex items-center">
+                      <div className="text-[8px] text-white/20 mx-1">/</div>
+                      <button
+                        onClick={() => handleZoomOut(index + 1)}
+                        className={`px-3 py-2 text-[9px] font-mono tracking-widest transition-all ${
+                          index === currentPath.length - 1
+                            ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                            : "text-white/40 hover:text-white"
+                        }`}
+                      >
+                        {node.title.toUpperCase().slice(0, 15)}
+                      </button>
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
-        <ConnectionPanel
-          open={connectionPanelOpen}
-          onOpenChange={setConnectionPanelOpen}
-          connections={connections}
-          allNodes={allNodes}
-        />
+          <div className="flex items-center gap-4 pointer-events-auto">
+            <div className="flex p-1 bg-black/40 backdrop-blur-3xl border border-white/10">
+              <button
+                onClick={() => setViewMode("mindmap")}
+                className={`px-6 py-2 text-[9px] font-black uppercase tracking-[0.2em] transition-all ${
+                  viewMode === "mindmap" ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(6,182,212,0.4)]" : "text-white/40 hover:text-white"
+                }`}
+              >
+                MAP
+              </button>
+              <button
+                onClick={() => setViewMode("grid")}
+                className={`px-6 py-2 text-[9px] font-black uppercase tracking-[0.2em] transition-all ${
+                  viewMode === "grid" ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(6,182,212,0.4)]" : "text-white/40 hover:text-white"
+                }`}
+              >
+                GRID
+              </button>
+            </div>
+            
+            <button
+              onClick={() => setAnalyzeDialogOpen(true)}
+              className="px-6 py-3 bg-white text-black text-[9px] font-black uppercase tracking-[0.2em] hover:bg-cyan-400 hover:shadow-[0_0_20px_rgba(6,182,212,0.5)] transition-all active:scale-95"
+            >
+              ANALYSIS_CORE
+            </button>
+            
+            <ThemeToggle />
+          </div>
+        </div>
 
-        <AnalyzeDialog
-          open={analyzeDialogOpen}
-          onOpenChange={setAnalyzeDialogOpen}
-        />
+        {/* Floating Bottom Stats (Technical HUD) */}
+        <div className="fixed bottom-0 left-0 right-0 z-50 p-8 flex justify-center pointer-events-none">
+          <div className="flex items-center gap-12 px-10 py-5 bg-black/60 backdrop-blur-3xl border border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.6)] pointer-events-auto">
+            <div className="flex flex-col items-center">
+               <span className="text-[7px] font-black uppercase tracking-[0.5em] text-cyan-400/60 mb-2">SYSTEM_NODES</span>
+               <span className="text-xl font-mono text-white leading-none tracking-tighter">{totalNodes.toString().padStart(3, '0')}</span>
+            </div>
+            <div className="h-10 w-px bg-white/5" />
+            <button 
+              onClick={() => setConnectionPanelOpen(true)}
+              className="flex flex-col items-center group transition-all"
+            >
+               <span className="text-[7px] font-black uppercase tracking-[0.5em] text-cyan-400/60 mb-2 group-hover:text-cyan-400">NETWORK_FLUX</span>
+               <span className="text-xl font-mono text-white leading-none tracking-tighter group-hover:text-cyan-400">{connectionCount.toString().padStart(3, '0')}</span>
+            </button>
+            <div className="h-10 w-px bg-white/5" />
+            <div className="flex flex-col items-center">
+               <span className="text-[7px] font-black uppercase tracking-[0.5em] text-cyan-400/60 mb-2">DEPTH_LVL</span>
+               <span className="text-xl font-mono text-white leading-none tracking-tighter">{currentLevel.toString().padStart(2, '0')}</span>
+            </div>
+            {currentLevel < 7 && (
+              <>
+                <div className="h-10 w-px bg-white/5" />
+                <button
+                  onClick={() => setAddDialogOpen(true)}
+                  className="flex items-center justify-center w-10 h-10 border border-white/20 text-white hover:bg-cyan-500 hover:text-black hover:border-cyan-500 transition-all active:scale-95"
+                  title={`Append ${levelLabel(currentLevel + 1)}`}
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
-      </main>
+      {/* Overlays */}
+      <AnimatePresence>
+        {selectedNode && (
+          <NodeDetail
+            node={selectedNode}
+            connections={connections.filter((c) => c.sourceId === selectedNode.id || c.targetId === selectedNode.id)}
+            allNodes={allNodes}
+            onClose={() => setSelectedNode(null)}
+            onDelete={() => deleteNodeMutation.mutate(selectedNode.id)}
+            isDeleting={deleteNodeMutation.isPending}
+          />
+        )}
+      </AnimatePresence>
+
+      <AddNodeDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        parentId={currentParentId}
+        level={currentLevel + 1}
+      />
+
+      <ConnectionPanel
+        open={connectionPanelOpen}
+        onOpenChange={setConnectionPanelOpen}
+        connections={connections}
+        allNodes={allNodes}
+      />
+
+      <AnalyzeDialog open={analyzeDialogOpen} onOpenChange={setAnalyzeDialogOpen} />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { type KnowledgeNode, type Connection, LEVEL_NAMES, LEVEL_COLORS, LEVEL_LABELS_KO } from "@shared/schema";
+import { type KnowledgeNode, type Connection } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
-import { ZoomIn, ZoomOut, Maximize, Plus, X, FileText } from "lucide-react";
+import { MousePointer2, ZoomIn, Plus, Sparkles, Activity, Crosshair, Box, Zap } from "lucide-react";
+import { AddNodeDialog } from "./add-node-dialog";
 
 interface MindMapProps {
   allNodes: KnowledgeNode[];
@@ -14,1249 +15,467 @@ interface MindMapProps {
   fullscreen?: boolean;
 }
 
-function buildAdjacency(
-  allNodes: KnowledgeNode[],
-  connections: Connection[],
-  posMap: Map<number, PositionedNode>
-): Map<number, Set<number>> {
-  const adj = new Map<number, Set<number>>();
-  const ensure = (id: number) => { if (!adj.has(id)) adj.set(id, new Set()); };
+type Vec3 = { x: number; y: number; z: number };
 
-  allNodes.forEach((node) => {
-    if (!posMap.has(node.id)) return;
-    ensure(node.id);
-    if (node.parentId !== null && posMap.has(node.parentId)) {
-      ensure(node.parentId);
-      adj.get(node.id)!.add(node.parentId);
-      adj.get(node.parentId)!.add(node.id);
-    }
-  });
+const BACKRONYM_CYAN = "#00f2ff";
+const BACKRONYM_BG = "#020305";
+const PURPLE_ACCENT = "#a855f7";
 
-  connections.forEach((conn) => {
-    if (posMap.has(conn.sourceId) && posMap.has(conn.targetId)) {
-      ensure(conn.sourceId);
-      ensure(conn.targetId);
-      adj.get(conn.sourceId)!.add(conn.targetId);
-      adj.get(conn.targetId)!.add(conn.sourceId);
-    }
-  });
+// Math Helpers
+function add(a: Vec3, b: Vec3): Vec3 { return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }; }
+function scale(vec: Vec3, factor: number): Vec3 { return { x: vec.x * factor, y: vec.y * factor, z: vec.z * factor }; }
+function normalize(vec: Vec3): Vec3 { const len = Math.sqrt(vec.x**2 + vec.y**2 + vec.z**2) || 1; return { x: vec.x / len, y: vec.y / len, z: vec.z / len }; }
+function rotateX(vec: Vec3, angle: number): Vec3 { const c = Math.cos(angle), s = Math.sin(angle); return { x: vec.x, y: vec.y * c - vec.z * s, z: vec.y * s + vec.z * c }; }
+function rotateY(vec: Vec3, angle: number): Vec3 { const c = Math.cos(angle), s = Math.sin(angle); return { x: vec.x * c + vec.z * s, y: vec.y, z: -vec.x * s + vec.z * c }; }
 
-  return adj;
+function fibonacciSphere(index: number, count: number) {
+  if (count <= 1) return { x: 0, y: 0, z: 1 };
+  const y = 1 - (index / (count - 1)) * 2;
+  const radius = Math.sqrt(1 - y * y);
+  const phi = Math.PI * (3 - Math.sqrt(5)) * index;
+  return { x: Math.cos(phi) * radius, y, z: Math.sin(phi) * radius };
 }
 
-interface PositionedNode {
-  node: KnowledgeNode;
-  x: number;
-  y: number;
-  radius: number;
+function extractKeyword(title: string) {
+  if (!title) return "DAT";
+  const primaryLine = title.split("\n").map(l => l.trim()).find(l => l && !l.includes("날짜")) ?? title.trim();
+  const cleaned = primaryLine.replace(/[\[\]{}()📅💡📖ℹ️📊:;,/\\|]/g, " ").replace(/\s+/g, " ").trim();
+  const token = cleaned.match(/[A-Za-z0-9가-힣]+/)?.[0];
+  return token ? token.slice(0, 14) : cleaned.slice(0, 14) || "DAT";
 }
 
-const NODE_COLORS: Record<number, string> = {
-  0: "#A78BFA",
-  1: "#8B5CF6",
-  2: "#7C3AED",
-  3: "#6D28D9",
-  4: "#5B21B6",
-  5: "#6366F1",
-  6: "#4F46E5",
-  7: "#4338CA",
+const HUD_Bracket = ({ pos, isLight }: { pos: "tl" | "tr" | "bl" | "br", isLight: boolean }) => {
+  const styles = {
+    tl: "top-0 left-0 border-t border-l",
+    tr: "top-0 right-0 border-t border-r",
+    bl: "bottom-0 left-0 border-b border-l",
+    br: "bottom-0 right-0 border-b border-r",
+  };
+  const borderColor = isLight ? "border-slate-400" : "border-cyan-500/40";
+  return <div className={`absolute w-2 h-2 ${borderColor} ${styles[pos]}`} />;
 };
 
-const TIER_ICONS: Record<number, string> = {
-  2: "📄",
-  3: "💡",
-  4: "📖",
-  5: "ℹ️",
-  6: "📊",
-};
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let currentLine = words[0] || "";
 
-const CATEGORY_PALETTE = [
-  "#F87171", // red
-  "#FB923C", // orange
-  "#FBBF24", // amber
-  "#4ADE80", // green
-  "#22D3EE", // cyan
-  "#60A5FA", // blue
-  "#A78BFA", // violet
-  "#F472B6", // pink
-  "#2DD4BF", // teal
-];
-
-type Pt = { x: number; y: number };
-function _cross(O: Pt, A: Pt, B: Pt) {
-  return (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
-}
-function convexHull(pts: Pt[]): Pt[] {
-  if (pts.length < 3) return pts;
-  const s = [...pts].sort((a, b) => a.x !== b.x ? a.x - b.x : a.y - b.y);
-  const lo: Pt[] = [];
-  for (const p of s) { while (lo.length >= 2 && _cross(lo[lo.length-2], lo[lo.length-1], p) <= 0) lo.pop(); lo.push(p); }
-  const hi: Pt[] = [];
-  for (const p of [...s].reverse()) { while (hi.length >= 2 && _cross(hi[hi.length-2], hi[hi.length-1], p) <= 0) hi.pop(); hi.push(p); }
-  return lo.slice(0, -1).concat(hi.slice(0, -1));
-}
-function smoothHullPath(hull: Pt[], smoothPad = 18): string {
-  const n = hull.length;
-  if (n === 0) return '';
-  if (n === 1) return `M ${hull[0].x} ${hull[0].y}`;
-  if (n === 2) {
-    const [a, b] = hull;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)} Z`;
-  }
-  const cx = hull.reduce((s, p) => s + p.x, 0) / n;
-  const cy = hull.reduce((s, p) => s + p.y, 0) / n;
-  const exp = hull.map(p => {
-    const dx = p.x - cx, dy = p.y - cy;
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    return { x: p.x + (dx / len) * smoothPad, y: p.y + (dy / len) * smoothPad };
-  });
-  const mids = exp.map((p, i) => {
-    const q = exp[(i + 1) % n];
-    return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
-  });
-  let d = `M ${mids[0].x.toFixed(1)} ${mids[0].y.toFixed(1)}`;
-  for (let i = 0; i < n; i++) {
-    const corner = exp[(i + 1) % n];
-    const nxt = mids[(i + 1) % n];
-    d += ` Q ${corner.x.toFixed(1)} ${corner.y.toFixed(1)} ${nxt.x.toFixed(1)} ${nxt.y.toFixed(1)}`;
-  }
-  return d + ' Z';
-}
-
-function buildTree(
-  allNodes: KnowledgeNode[],
-  focusNodeId: number | null
-): Map<number | null, KnowledgeNode[]> {
-  const childrenMap = new Map<number | null, KnowledgeNode[]>();
-  allNodes.forEach((node) => {
-    const parentId = node.parentId;
-    if (!childrenMap.has(parentId)) {
-      childrenMap.set(parentId, []);
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    const width = ctx.measureText(currentLine + " " + word).width;
+    if (width < maxWidth) {
+      currentLine += " " + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
     }
-    childrenMap.get(parentId)!.push(node);
-  });
-  return childrenMap;
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
 }
 
-function layoutRadialTree(
-  childrenMap: Map<number | null, KnowledgeNode[]>,
-  focusNodeId: number | null,
-  centerX: number,
-  centerY: number
-): PositionedNode[] {
-  const positioned: PositionedNode[] = [];
-  let rootId = focusNodeId;
-  let rootChildren = childrenMap.get(rootId) || [];
-  if (rootChildren.length === 0 && rootId !== null) {
-    rootId = null;
-    rootChildren = childrenMap.get(null) || [];
-  }
-  if (rootChildren.length === 0) return positioned;
-
-  const BASE_RADIUS = 300;
-  // Reduced step so DIKW levels under the same article cluster more tightly
-  const RADIUS_STEP = 240;
-  // Force all categories to equal arc proportion so inter-category L2 nodes never crowd together
-  const MIN_LEAF_WEIGHT = 8;
-
-  // Layout box dims used ONLY for spacing calculations (can be smaller than visual boxes
-  // so dense subtrees don't get pushed to enormous radii).
-  // L1 uses L2's box dims so depth-1 spacing accounts for L2 adjacency.
-  const LAYOUT_BOX_W: Record<number, number> = { 1: 172, 2: 172, 3: 115, 4: 100, 5: 80, 6: 68 };
-  const LAYOUT_BOX_H: Record<number, number> = { 1: 48,  2: 48,  3: 28,  4: 24,  5: 20,  6: 18 };
-  const SPACING_MARGIN = 14;
-
-  const leafCache = new Map<number, number>();
-  function countLeaves(nodeId: number): number {
-    if (leafCache.has(nodeId)) return leafCache.get(nodeId)!;
-    const ch = childrenMap.get(nodeId) || [];
-    const count = ch.length === 0 ? 1 : ch.reduce((s, c) => s + countLeaves(c.id), 0);
-    leafCache.set(nodeId, count);
-    return count;
-  }
-
-  function effectiveWeight(nodeId: number): number {
-    return Math.max(countLeaves(nodeId), MIN_LEAF_WEIGHT);
-  }
-
-  function nodeSize(depth: number): number {
-    return Math.max(28 - depth * 4, 14);
-  }
-
-  function layoutChildren(
-    parentId: number | null,
-    angleStart: number,
-    angleEnd: number,
-    depth: number
-  ) {
-    const children = parentId === rootId
-      ? rootChildren
-      : childrenMap.get(parentId) || [];
-    if (children.length === 0) return;
-
-    const angleRange = angleEnd - angleStart;
-    const baseR = BASE_RADIUS + RADIUS_STEP * (depth - 1);
-
-    const weights = children.map(c => effectiveWeight(c.id));
-    const totalWeight = weights.reduce((a, b) => a + b, 0);
-    const proportions = weights.map(w => totalWeight > 0 ? w / totalWeight : 1 / children.length);
-
-    // Compute minimum spacing from box diagonal so no two siblings ever overlap
-    const bw = LAYOUT_BOX_W[depth] ?? 90;
-    const bh = LAYOUT_BOX_H[depth] ?? 26;
-    const minArcSpacing = Math.sqrt(bw * bw + bh * bh) + SPACING_MARGIN;
-
-    let r = baseR;
-    if (children.length > 1) {
-      for (let i = 0; i < children.length; i++) {
-        const j = (i + 1) % children.length;
-        const halfArcI = angleRange * proportions[i] / 2;
-        const halfArcJ = angleRange * proportions[j] / 2;
-        const gapAngle = halfArcI + halfArcJ;
-        const neededR = minArcSpacing / Math.max(gapAngle, 0.001);
-        r = Math.max(r, neededR);
-      }
-    }
-
-    let currentAngle = angleStart;
-    children.forEach((child, i) => {
-      const childAngle = angleRange * proportions[i];
-      const angleMid = currentAngle + childAngle / 2;
-
-      const x = centerX + r * Math.cos(angleMid);
-      const y = centerY + r * Math.sin(angleMid);
-      const nr = nodeSize(depth);
-
-      positioned.push({ node: child, x, y, radius: nr });
-
-      layoutChildren(child.id, currentAngle, currentAngle + childAngle, depth + 1);
-      currentAngle += childAngle;
-    });
-  }
-
-  layoutChildren(rootId, -Math.PI / 2, Math.PI * 1.5, 1);
-
-  // ── Compact local subtree layout ──────────────────────────────────────────
-  // Replace the main-layout positions of L3+ nodes with positions computed
-  // relative to each L2 article, so the DIKW chain forms a tight "bouquet"
-  // around the article node instead of a wide radial fan.
-  const COMPACT: Array<{ step: number; maxSpread: number; boxDiag: number }> = [
-    { step: 220, maxSpread: 0.42, boxDiag: Math.sqrt(152 * 152 + 38 * 38) + 10 }, // L3
-    { step: 235, maxSpread: 0.38, boxDiag: Math.sqrt(138 * 138 + 34 * 34) + 10 }, // L4
-    { step: 200, maxSpread: 0.32, boxDiag: Math.sqrt(104 * 104 + 28 * 28) + 10 }, // L5
-    { step: 175, maxSpread: 0.28, boxDiag: Math.sqrt(90  * 90  + 26 * 26) + 10 }, // L6
-  ];
-
-  function placeCompact(
-    parentId: number,
-    px: number, py: number,
-    aimAngle: number,
-    lvl: number
-  ) {
-    const ch = childrenMap.get(parentId) || [];
-    if (ch.length === 0 || lvl >= COMPACT.length) return;
-    const { step, maxSpread, boxDiag } = COMPACT[lvl];
-    const n = ch.length;
-    const halfSpread =
-      n <= 1 ? 0 : Math.min(maxSpread, ((n - 1) / 2) * (boxDiag / step));
-    ch.forEach((child, i) => {
-      const angle =
-        n <= 1
-          ? aimAngle
-          : aimAngle - halfSpread + (2 * halfSpread / (n - 1)) * i;
-      const nx = px + step * Math.cos(angle);
-      const ny = py + step * Math.sin(angle);
-      const idx = positioned.findIndex(p => p.node.id === child.id);
-      if (idx >= 0) positioned[idx] = { ...positioned[idx], x: nx, y: ny };
-      placeCompact(child.id, nx, ny, angle, lvl + 1);
-    });
-  }
-
-  positioned
-    .filter(p => p.node.level === 2)
-    .forEach(l2pn => {
-      const aimAngle = Math.atan2(l2pn.y - centerY, l2pn.x - centerX);
-      placeCompact(l2pn.node.id, l2pn.x, l2pn.y, aimAngle, 0);
-    });
-  // ── end compact layout ────────────────────────────────────────────────────
-
-  return positioned;
-}
-
-function CurvedLink({
-  x1, y1, x2, y2, color, opacity, isConnection
-}: {
-  x1: number; y1: number; x2: number; y2: number;
-  color: string; opacity: number; isConnection?: boolean;
-}) {
-  if (isConnection) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
-    const perpX = -dy * 0.2;
-    const perpY = dx * 0.2;
-    return (
-      <path
-        d={`M ${x1} ${y1} Q ${midX + perpX} ${midY + perpY} ${x2} ${y2}`}
-        stroke={color}
-        strokeWidth={1}
-        strokeDasharray="4 4"
-        fill="none"
-        opacity={opacity * 0.7}
-        className="transition-opacity duration-300"
-      />
-    );
-  }
-
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const cx1 = x1 + dx * 0.3;
-  const cy1 = y1;
-  const cx2 = x1 + dx * 0.7;
-  const cy2 = y2;
-  return (
-    <path
-      d={`M ${x1} ${y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${x2} ${y2}`}
-      stroke={color}
-      strokeWidth={2.2}
-      fill="none"
-      opacity={opacity}
-      className="transition-opacity duration-300"
-    />
-  );
-}
-
-function screenToSvg(svgEl: SVGSVGElement, clientX: number, clientY: number) {
-  const pt = svgEl.createSVGPoint();
-  pt.x = clientX;
-  pt.y = clientY;
-  const ctm = svgEl.getScreenCTM();
-  if (!ctm) return { x: 0, y: 0 };
-  const svgPt = pt.matrixTransform(ctm.inverse());
-  return { x: svgPt.x, y: svgPt.y };
-}
-
-export function MindMap({
-  allNodes, connections, onNodeSelect, onNodeZoom,
-  selectedNode, focusNodeId, onAddNode, fullscreen
-}: MindMapProps) {
+export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selectedNode, focusNodeId, onAddNode, fullscreen }: MindMapProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [viewBox, setViewBox] = useState({ x: -600, y: -450, w: 1200, h: 900 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
-  const [fullTextNode, setFullTextNode] = useState<KnowledgeNode | null>(null);
-  const [dimensions, setDimensions] = useState({ width: 1200, height: 900 });
-
-  const nodeOffsets = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const [dragState, setDragState] = useState<{
-    nodeId: number;
-    startSvg: { x: number; y: number };
-    startOffset: { x: number; y: number };
-  } | null>(null);
-  const velocityRef = useRef<Map<number, { vx: number; vy: number }>>(new Map());
-  const lastDragPos = useRef<{ x: number; y: number; t: number } | null>(null);
-  const animFrameRef = useRef<number | null>(null);
-  const dragSpringRef = useRef<number | null>(null);
-  const didDragRef = useRef(false);
-  const [, forceUpdate] = useState(0);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [manualAdd, setManualAdd] = useState<{ parentId: number | null, level: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: number | null, level: number } | null>(null);
+  const [isLight, setIsLight] = useState(false);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setDimensions({ width, height });
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === "class") {
+          setIsLight(!document.documentElement.classList.contains("dark"));
+        }
+      });
     });
-    ro.observe(el);
-    return () => ro.disconnect();
+    observer.observe(document.documentElement, { attributes: true });
+    setIsLight(!document.documentElement.classList.contains("dark"));
+    return () => observer.disconnect();
   }, []);
 
-  const childrenMap = useMemo(() => buildTree(allNodes, focusNodeId), [allNodes, focusNodeId]);
-  const positionedNodes = useMemo(
-    () => layoutRadialTree(childrenMap, focusNodeId, 0, 0),
-    [childrenMap, focusNodeId]
-  );
+  const state = useRef({
+    yaw: 0.8, pitch: -0.2, yawVel: 0, pitchVel: 0, zoom: 400, zoomVel: 0,
+    offsetX: 0, offsetY: 0, isDragging: false, dragMode: "rotate" as "rotate" | "pan" | "node",
+    lastX: 0, lastY: 0, targetNodeId: null as number | null, 
+    nodeOffsets: {} as Record<number, Vec3>,
+    nodeVelocities: {} as Record<number, Vec3>,
+    particles: [] as { nodeId: number, parentId: number, progress: number, speed: number }[],
+    cursorParticles: [] as { x: number, y: number, life: number, size: number }[],
+    lastClickTime: 0, lastClickNodeId: null as number | null,
+    frame: 0
+  });
 
   useEffect(() => {
-    nodeOffsets.current.clear();
-    velocityRef.current.clear();
-    forceUpdate(n => n + 1);
-  }, [focusNodeId, allNodes.length]);
+    state.current.particles = connections.map(c => ({
+      nodeId: c.targetId,
+      parentId: c.sourceId,
+      progress: Math.random(),
+      speed: 0.002 + Math.random() * 0.005
+    }));
+  }, [connections]);
 
-  const getNodePos = useCallback((pn: PositionedNode) => {
-    const off = nodeOffsets.current.get(pn.node.id);
-    return {
-      x: pn.x + (off?.x ?? 0),
-      y: pn.y + (off?.y ?? 0),
-    };
-  }, []);
+  const nodePositions = useMemo(() => {
+    const posMap = new Map<number, Vec3>();
+    const childrenMap = new Map<number | null, KnowledgeNode[]>();
+    allNodes.forEach(n => {
+      if (!childrenMap.has(n.parentId)) childrenMap.set(n.parentId, []);
+      childrenMap.get(n.parentId)!.push(n);
+    });
 
-  const posMap = useMemo(() => {
-    const m = new Map<number, PositionedNode>();
-    positionedNodes.forEach((pn) => m.set(pn.node.id, pn));
-    return m;
-  }, [positionedNodes]);
+    const visited = new Set<number>();
+    function place(node: KnowledgeNode, basePos: Vec3, dir: Vec3, depth: number) {
+      if (visited.has(node.id)) return;
+      visited.add(node.id);
+      posMap.set(node.id, basePos);
+      const children = childrenMap.get(node.id) || [];
+      const radius = 350 + depth * 150;
+      children.forEach((child, i) => {
+        const childDir = depth === 0 ? fibonacciSphere(i, children.length) : normalize(add(scale(dir, 1.5), fibonacciSphere(i, children.length)));
+        place(child, add(basePos, scale(childDir, radius)), childDir, depth + 1);
+      });
+    }
 
-  // Category color map: L1 nodeId → unique color
-  const categoryColorMap = useMemo(() => {
-    const map = new Map<number, string>();
-    const l1Nodes = allNodes.filter(n => n.level === 1).sort((a, b) => a.sortOrder - b.sortOrder);
-    l1Nodes.forEach((node, i) => map.set(node.id, CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]));
-    return map;
+    const roots = allNodes.filter(n => n.parentId === null);
+    roots.forEach((root, i) => {
+      const dir = roots.length === 1 ? { x: 0, y: 0, z: 1 } : fibonacciSphere(i, roots.length);
+      place(root, scale(dir, roots.length === 1 ? 0 : 400), dir, 0);
+    });
+    return posMap;
   }, [allNodes]);
 
-  // Node → ancestor category color map
-  const nodeCategoryColorMap = useMemo(() => {
-    const map = new Map<number, string>();
-    const nodeMap = new Map(allNodes.map(n => [n.id, n]));
-    allNodes.forEach(node => {
-      let cur: KnowledgeNode | undefined = node;
-      while (cur) {
-        if (cur.level === 1) { const c = categoryColorMap.get(cur.id); if (c) map.set(node.id, c); break; }
-        cur = cur.parentId != null ? nodeMap.get(cur.parentId) : undefined;
-      }
-    });
-    return map;
-  }, [allNodes, categoryColorMap]);
-
-  // Sector wedge paths for each L1 category
-  const sectorWedges = useMemo(() => {
-    const l1 = positionedNodes.filter(pn => pn.node.level === 1);
-    if (l1.length < 2) return [];
-    const norm = (a: number) => { while (a < -Math.PI / 2 - 0.001) a += Math.PI * 2; return a; };
-    const sorted = [...l1].sort((a, b) => norm(Math.atan2(a.y, a.x)) - norm(Math.atan2(b.y, b.x)));
-    const n = sorted.length;
-    const angles = sorted.map(pn => norm(Math.atan2(pn.y, pn.x)));
-    // boundary[i] = midpoint between category i and i+1
-    const boundaries = angles.map((a, i) => {
-      const next = i < n - 1 ? angles[i + 1] : angles[0] + Math.PI * 2;
-      return (a + next) / 2;
-    });
-    const INNER_R = 108;
-    const OUTER_R = 1900;
-    return sorted.map((pn, i) => {
-      const a1 = i === 0 ? boundaries[n - 1] - Math.PI * 2 : boundaries[i - 1];
-      const a2 = boundaries[i];
-      const sweep = a2 - a1;
-      const large = sweep > Math.PI ? 1 : 0;
-      const [c1, s1, c2, s2] = [Math.cos(a1), Math.sin(a1), Math.cos(a2), Math.sin(a2)];
-      const d = `M ${INNER_R*c1} ${INNER_R*s1} L ${OUTER_R*c1} ${OUTER_R*s1} A ${OUTER_R} ${OUTER_R} 0 ${large} 1 ${OUTER_R*c2} ${OUTER_R*s2} L ${INNER_R*c2} ${INNER_R*s2} A ${INNER_R} ${INNER_R} 0 ${large} 0 ${INNER_R*c1} ${INNER_R*s1} Z`;
-      const color = categoryColorMap.get(pn.node.id) ?? '#8B5CF6';
-      const labelAngle = (a1 + a2) / 2;
-      const labelR = INNER_R + 40;
-      return { nodeId: pn.node.id, d, color, labelAngle, labelR, a1, a2 };
-    });
-  }, [positionedNodes, categoryColorMap]);
-
-  // Per-article convex hull grouping outlines
-  // nodeOffsets.current is always up-to-date because forceUpdate triggers re-renders
-  const articleGroupPaths = (() => {
-    const BOX_HW: Record<number, [number, number]> = {
-      1: [63, 20], 2: [86, 24], 3: [76, 19], 4: [69, 17], 5: [52, 14], 6: [45, 13],
-    };
-    const PAD = 28;
-    const l2Nodes = positionedNodes.filter(pn => pn.node.level === 2);
-    return l2Nodes.map(l2pn => {
-      const pts: Pt[] = [];
-      const visited = new Set<number>();
-      function collect(id: number) {
-        if (visited.has(id)) return;
-        visited.add(id);
-        const pn = posMap.get(id);
-        if (!pn) return;
-        const off = nodeOffsets.current.get(id) ?? { x: 0, y: 0 };
-        const cx = pn.x + off.x, cy = pn.y + off.y;
-        const [hw, hh] = BOX_HW[pn.node.level] ?? [60, 18];
-        pts.push(
-          { x: cx - hw - PAD, y: cy - hh - PAD },
-          { x: cx + hw + PAD, y: cy - hh - PAD },
-          { x: cx + hw + PAD, y: cy + hh + PAD },
-          { x: cx - hw - PAD, y: cy + hh + PAD },
-        );
-        positionedNodes.filter(p => p.node.parentId === id).forEach(c => collect(c.node.id));
-      }
-      collect(l2pn.node.id);
-      if (pts.length < 4) return null;
-      const hull = convexHull(pts);
-      const path = smoothHullPath(hull, 20);
-      const color = nodeCategoryColorMap.get(l2pn.node.id) ?? '#8B5CF6';
-      return { id: l2pn.node.id, path, color };
-    }).filter((g): g is NonNullable<typeof g> => g !== null);
-  })();
-
-  const parentEdges = useMemo(() => {
-    return positionedNodes
-      .filter((pn) => {
-        const pid = pn.node.parentId;
-        if (pid === null) return focusNodeId === null;
-        if (focusNodeId !== null && pid === focusNodeId) return true;
-        return posMap.has(pid);
-      })
-      .map((pn) => {
-        const pid = pn.node.parentId;
-        const parentPos = pid !== null && pid !== focusNodeId ? posMap.get(pid) : null;
-        return {
-          id: `edge-${pid ?? "root"}-${pn.node.id}`,
-          childId: pn.node.id,
-          parentNodeId: parentPos ? pid : null,
-          color: pn.node.color || NODE_COLORS[pn.node.level] || "#8B5CF6",
-          level: pn.node.level,
-        };
-      });
-  }, [positionedNodes, posMap, focusNodeId]);
-
-  const connectionEdges = useMemo(() => {
-    return connections
-      .map((conn) => {
-        const source = posMap.get(conn.sourceId);
-        const target = posMap.get(conn.targetId);
-        if (!source || !target) return null;
-        return {
-          id: `conn-${conn.id}`,
-          sourceId: conn.sourceId,
-          targetId: conn.targetId,
-          description: conn.description,
-        };
-      })
-      .filter(Boolean) as {
-        id: string; sourceId: number; targetId: number; description: string | null;
-      }[];
-  }, [connections, posMap]);
-
-  const handleZoom = useCallback((factor: number) => {
-    setViewBox((v) => {
-      const newW = v.w * factor;
-      const newH = v.h * factor;
-      return {
-        x: v.x - (newW - v.w) / 2,
-        y: v.y - (newH - v.h) / 2,
-        w: newW,
-        h: newH,
-      };
-    });
-  }, []);
-
-  const handleReset = useCallback(() => {
-    if (positionedNodes.length === 0) {
-      setViewBox({ x: -600, y: -450, w: 1200, h: 900 });
-      return;
-    }
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    positionedNodes.forEach(({ x, y, radius }) => {
-      const off = nodeOffsets.current.get(positionedNodes.find(pn => pn.x === x && pn.y === y)?.node.id ?? -1);
-      const px = x + (off?.x ?? 0);
-      const py = y + (off?.y ?? 0);
-      minX = Math.min(minX, px - radius - 100);
-      maxX = Math.max(maxX, px + radius + 100);
-      minY = Math.min(minY, py - radius - 100);
-      maxY = Math.max(maxY, py + radius + 100);
-    });
-    minX = Math.min(minX, -100);
-    maxX = Math.max(maxX, 100);
-    minY = Math.min(minY, -100);
-    maxY = Math.max(maxY, 100);
-    const padding = 120;
-    setViewBox({
-      x: minX - padding,
-      y: minY - padding,
-      w: maxX - minX + padding * 2,
-      h: maxY - minY + padding * 2,
-    });
-  }, [positionedNodes]);
-
   useEffect(() => {
-    handleReset();
-  }, [focusNodeId, allNodes.length]);
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
+    let rafId: number;
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const factor = e.deltaY > 0 ? 1.08 : 0.92;
-        handleZoom(factor);
+    const render = () => {
+      const s = state.current;
+      s.frame++;
+      
+      s.zoom += s.zoomVel;
+      s.zoomVel *= 0.85;
+
+      if (!s.isDragging) { 
+        s.yaw += s.yawVel; s.pitch += s.pitchVel; 
+        s.yawVel *= 0.95; s.pitchVel *= 0.95; 
       }
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [handleZoom]);
 
-  const [spaceHeld, setSpaceHeld] = useState(false);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !e.repeat) {
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
-        e.preventDefault();
-        setSpaceHeld(true);
-      }
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        setSpaceHeld(false);
-        setIsPanning(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-    };
-  }, []);
-
-  const canPan = useCallback((e: React.PointerEvent) => {
-    return spaceHeld || e.ctrlKey || e.metaKey || e.button === 1;
-  }, [spaceHeld]);
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button === 1) {
-      e.preventDefault();
-    }
-    if (canPan(e)) {
-      setIsPanning(true);
-      setPanStart({ x: e.clientX, y: e.clientY });
-      (e.target as Element).setPointerCapture?.(e.pointerId);
-    }
-  }, [canPan]);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isPanning) return;
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
-    const rect = svgEl.getBoundingClientRect();
-    const scaleX = viewBox.w / rect.width;
-    const scaleY = viewBox.h / rect.height;
-    // Boost panning speed when zoomed in: sqrt(baseW / viewBox.w) so
-    // at 2× zoom the pan feels ~1.4× faster, at 4× zoom ~2× faster.
-    const zoomBoost = Math.sqrt(1200 / viewBox.w);
-    const dx = (e.clientX - panStart.x) * scaleX * 1.4 * zoomBoost;
-    const dy = (e.clientY - panStart.y) * scaleY * 1.4 * zoomBoost;
-    setViewBox((v) => ({ ...v, x: v.x - dx, y: v.y - dy }));
-    setPanStart({ x: e.clientX, y: e.clientY });
-  }, [isPanning, panStart, viewBox]);
-
-  const handlePointerUp = useCallback(() => {
-    setIsPanning(false);
-  }, []);
-
-  const adjacency = useMemo(
-    () => buildAdjacency(allNodes, connections, posMap),
-    [allNodes, connections, posMap]
-  );
-
-  const applySpringForces = useCallback((draggedId: number | null, dt: number) => {
-    const SPRING_K = 0.15;
-    const DAMPING = 0.85;
-
-    const forces = new Map<number, { fx: number; fy: number }>();
-
-    adjacency.forEach((neighbors, nodeId) => {
-      if (nodeId === draggedId) return;
-      const pn = posMap.get(nodeId);
-      if (!pn) return;
-      const offA = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
-
-      neighbors.forEach((neighborId) => {
-        const pnB = posMap.get(neighborId);
-        if (!pnB) return;
-        const offB = nodeOffsets.current.get(neighborId) || { x: 0, y: 0 };
-
-        const diffX = offB.x - offA.x;
-        const diffY = offB.y - offA.y;
-        const dist = Math.sqrt(diffX * diffX + diffY * diffY);
-        if (dist < 0.5) return;
-
-        const fx = diffX * SPRING_K;
-        const fy = diffY * SPRING_K;
-
-        if (!forces.has(nodeId)) forces.set(nodeId, { fx: 0, fy: 0 });
-        const f = forces.get(nodeId)!;
-        f.fx += fx;
-        f.fy += fy;
-      });
-    });
-
-    let anyMoved = false;
-    forces.forEach(({ fx, fy }, nodeId) => {
-      const magnitude = Math.sqrt(fx * fx + fy * fy);
-      if (magnitude < 0.3) return;
-
-      anyMoved = true;
-      const vel = velocityRef.current.get(nodeId) || { vx: 0, vy: 0 };
-      vel.vx = (vel.vx + fx) * DAMPING;
-      vel.vy = (vel.vy + fy) * DAMPING;
-      velocityRef.current.set(nodeId, vel);
-
-      const off = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
-      off.x += vel.vx * dt;
-      off.y += vel.vy * dt;
-      nodeOffsets.current.set(nodeId, off);
-    });
-
-    return anyMoved;
-  }, [adjacency, posMap]);
-
-  const startMomentumDecay = useCallback(() => {
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-
-    let lastTime = performance.now();
-    const FRICTION = 3.5;
-
-    const tick = (now: number) => {
-      const dt = Math.min((now - lastTime) / 1000, 0.05);
-      lastTime = now;
-      let anyMoving = false;
-
-      velocityRef.current.forEach((vel, nodeId) => {
-        const speed = Math.sqrt(vel.vx * vel.vx + vel.vy * vel.vy);
-        if (speed < 0.5) {
-          velocityRef.current.delete(nodeId);
-          return;
+      // Advanced Physics Simulation: Spring-Mass System with Decay
+      const pk = 0.04; // Elastic constant
+      const pdamping = 0.82; // Resistance
+      
+      connections.forEach(conn => {
+        const srcId = conn.sourceId, tgtId = conn.targetId;
+        const offSrc = s.nodeOffsets[srcId] || {x:0,y:0,z:0};
+        const offTgt = s.nodeOffsets[tgtId] || {x:0,y:0,z:0};
+        
+        const dx = offSrc.x - offTgt.x;
+        const dy = offSrc.y - offTgt.y;
+        const dz = offSrc.z - offTgt.z;
+        
+        const vSrc = s.nodeVelocities[srcId] || {x:0,y:0,z:0};
+        const vTgt = s.nodeVelocities[tgtId] || {x:0,y:0,z:0};
+        
+        if (s.targetNodeId !== srcId) {
+          s.nodeVelocities[srcId] = { 
+            x: vSrc.x - dx * pk, 
+            y: vSrc.y - dy * pk, 
+            z: vSrc.z - dz * pk 
+          };
         }
-        anyMoving = true;
-        const decay = Math.exp(-FRICTION * dt);
-        vel.vx *= decay;
-        vel.vy *= decay;
-
-        const off = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
-        off.x += vel.vx * dt;
-        off.y += vel.vy * dt;
-        nodeOffsets.current.set(nodeId, off);
+        if (s.targetNodeId !== tgtId) {
+          s.nodeVelocities[tgtId] = { 
+            x: vTgt.x + dx * pk, 
+            y: vTgt.y + dy * pk, 
+            z: vTgt.z + dz * pk 
+          };
+        }
       });
 
-      const springMoved = applySpringForces(null, dt);
-      anyMoving = anyMoving || springMoved;
+      allNodes.forEach(node => {
+        const id = node.id;
+        if (s.isDragging && s.dragMode === "node" && s.targetNodeId === id) return;
 
-      if (anyMoving) {
-        forceUpdate(n => n + 1);
-        animFrameRef.current = requestAnimationFrame(tick);
-      } else {
-        animFrameRef.current = null;
-      }
+        const v = s.nodeVelocities[id] || {x:0,y:0,z:0};
+        const o = s.nodeOffsets[id] || {x:0,y:0,z:0};
+        
+        // Restorative force (pulling back to origin)
+        const rx = -o.x * 0.015, ry = -o.y * 0.015, rz = -o.z * 0.015;
+
+        s.nodeVelocities[id] = { 
+          x: (v.x + rx) * pdamping, 
+          y: (v.y + ry) * pdamping, 
+          z: (v.z + rz) * pdamping 
+        };
+        
+        s.nodeOffsets[id] = { 
+          x: o.x + s.nodeVelocities[id].x, 
+          y: o.y + s.nodeVelocities[id].y, 
+          z: o.z + s.nodeVelocities[id].z 
+        };
+      });
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      const accent = isLight ? "#6d28d9" : BACKRONYM_CYAN;
+      const cardBg = isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(2, 3, 5, 0.85)";
+      const textMain = isLight ? "#1e293b" : "#FFFFFF";
+
+      // Cursor Trail
+      if (s.cursorParticles.length < 25) s.cursorParticles.push({ x: mousePos.x, y: mousePos.y, life: 1, size: Math.random() * 3 + 1 });
+      s.cursorParticles.forEach((p, i) => { p.life -= 0.03; if (p.life <= 0) s.cursorParticles.splice(i, 1); });
+      s.cursorParticles.forEach(p => {
+        ctx.globalAlpha = p.life * 0.3; ctx.fillStyle = accent;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+      });
+
+      // Neural Particles
+      s.particles.forEach(p => { p.progress += p.speed; if (p.progress > 1) p.progress = 0; });
+
+      const nodesProjected = allNodes.map(node => {
+        const base = nodePositions.get(node.id) || { x: 0, y: 0, z: 0 };
+        const final = add(base, s.nodeOffsets[node.id] || { x: 0, y: 0, z: 0 });
+        const rotated = rotateX(rotateY(final, s.yaw), s.pitch);
+        const distFromCenter = Math.sqrt(rotated.x**2 + rotated.y**2 + rotated.z**2);
+        const zoomWeight = 1 + (distFromCenter / 1200);
+        const cameraDist = 2500;
+        const perspective = cameraDist / Math.max(50, 2500 + rotated.z + (s.zoom * zoomWeight));
+        return { id: node.id, node, x: canvas.width / 2 + rotated.x * perspective + s.offsetX, y: canvas.height / 2 + rotated.y * perspective + s.offsetY, scale: perspective, z: rotated.z, visible: (2500 + rotated.z + s.zoom * zoomWeight) > -300 };
+      }).filter(n => n.visible).sort((a, b) => b.z - a.z);
+
+      const projMap = new Map(nodesProjected.map(n => [n.id, n]));
+      
+      // Draw Connections
+      allNodes.forEach(node => {
+        if (node.parentId !== null) {
+          const src = projMap.get(node.id), tgt = projMap.get(node.parentId);
+          if (src && tgt) {
+            ctx.globalAlpha = Math.max(0.1, 0.4 * Math.min(src.scale, tgt.scale));
+            ctx.beginPath(); ctx.moveTo(src.x, src.y);
+            const dx = tgt.x - src.x, dy = tgt.y - src.y, dist = Math.sqrt(dx*dx + dy*dy) || 1;
+            const nx = -dy/dist, ny = dx/dist, bend = Math.min(50, dist * 0.15);
+            
+            const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
+            grad.addColorStop(0, isLight ? "rgba(109, 40, 217, 0.6)" : "rgba(0, 242, 255, 0.8)");
+            grad.addColorStop(1, isLight ? "rgba(139, 92, 246, 0.2)" : "rgba(168, 85, 247, 0.4)");
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = Math.max(0.5, 2 * Math.min(src.scale, tgt.scale));
+
+            const cpX = (src.x+tgt.x)/2 + nx*bend, cpY = (src.y+tgt.y)/2 + ny*bend;
+            ctx.quadraticCurveTo(cpX, cpY, tgt.x, tgt.y);
+            ctx.stroke();
+
+            // Flux Particles
+            s.particles.filter(p => p.nodeId === node.id && p.parentId === node.parentId).forEach(p => {
+              const t = p.progress;
+              const px = (1-t)**2 * src.x + 2*(1-t)*t * cpX + t**2 * tgt.x;
+              const py = (1-t)**2 * src.y + 2*(1-t)*t * cpY + t**2 * tgt.y;
+              ctx.globalAlpha = 1;
+              ctx.shadowBlur = 10; ctx.shadowColor = accent;
+              ctx.fillStyle = isLight ? accent : "#fff";
+              ctx.beginPath(); ctx.arc(px, py, 2 * Math.min(src.scale, tgt.scale), 0, Math.PI*2); ctx.fill();
+              ctx.shadowBlur = 0;
+            });
+          }
+        }
+      });
+
+      // Draw Nodes
+      nodesProjected.forEach(n => {
+        const isSelected = selectedNode?.id === n.id, isHov = hoveredNode === n.id;
+        const hoverScale = (isHov || isSelected) ? 1.25 : 1.0;
+        const currentScale = n.scale * hoverScale;
+        
+        let gx = 0, gy = 0;
+        if (isHov && s.frame % 30 < 3) {
+          gx = (Math.random() - 0.5) * 4 * currentScale;
+          gy = (Math.random() - 0.5) * 4 * currentScale;
+        }
+
+        ctx.globalAlpha = Math.max(0.2, Math.min(1, currentScale * 1.5));
+        const cardW = 160 * currentScale, cardH = 80 * currentScale;
+        const cx = n.x - cardW / 2 + gx, cy = n.y - cardH / 2 + gy;
+        const radius = 6 * currentScale;
+
+        // Chromatic Aberration / Glitch Effect
+        if (isHov || isSelected) {
+          ctx.strokeStyle = "rgba(255, 0, 80, 0.4)"; ctx.lineWidth = 2 * currentScale;
+          ctx.strokeRect(cx - 2, cy, cardW, cardH);
+          ctx.strokeStyle = "rgba(0, 255, 255, 0.4)";
+          ctx.strokeRect(cx + 2, cy, cardW, cardH);
+          
+          const ringSize = cardW * 0.8;
+          ctx.save(); ctx.translate(n.x, n.y); ctx.rotate(s.frame * 0.02);
+          ctx.strokeStyle = isLight ? "rgba(0,0,0,0.1)" : "rgba(0, 242, 255, 0.2)";
+          ctx.setLineDash([10, 10]);
+          ctx.beginPath(); ctx.arc(0, 0, ringSize, 0, Math.PI*2); ctx.stroke();
+          ctx.rotate(-s.frame * 0.05);
+          ctx.strokeStyle = isLight ? "rgba(109,40,217,0.2)" : "rgba(168, 85, 247, 0.3)";
+          ctx.beginPath(); ctx.arc(0, 0, ringSize + 10 * currentScale, 0, Math.PI*1.5); ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.beginPath(); ctx.roundRect(cx, cy, cardW, cardH, radius);
+        ctx.fillStyle = cardBg; ctx.fill();
+
+        if (isHov || isSelected) { ctx.shadowBlur = 25; ctx.shadowColor = accent; ctx.strokeStyle = accent; ctx.lineWidth = 2 * currentScale; }
+        else { ctx.shadowBlur = 5; ctx.shadowColor = isLight ? "rgba(0,0,0,0.05)" : "rgba(0, 242, 255, 0.2)"; ctx.strokeStyle = isLight ? "rgba(0,0,0,0.15)" : "rgba(0, 242, 255, 0.4)"; ctx.lineWidth = 0.5 * currentScale; }
+        ctx.stroke(); ctx.shadowBlur = 0;
+
+        const bl = 10 * currentScale; ctx.beginPath();
+        ctx.moveTo(cx, cy + bl); ctx.lineTo(cx, cy); ctx.lineTo(cx + bl, cy);
+        ctx.moveTo(cx + cardW - bl, cy); ctx.lineTo(cx + cardW, cy); ctx.lineTo(cx + cardW, cy + bl);
+        ctx.moveTo(cx, cy + cardH - bl); ctx.lineTo(cx, cy + cardH); ctx.lineTo(cx + bl, cy + cardH);
+        ctx.moveTo(cx + cardW - bl, cy + cardH); ctx.lineTo(cx + cardW, cy + cardH); ctx.lineTo(cx + cardW, cy + cardH - bl);
+        ctx.strokeStyle = isHov || isSelected ? (isLight ? "#000" : "#fff") : (isLight ? "rgba(0,0,0,0.3)" : "rgba(0, 242, 255, 0.7)"); ctx.lineWidth = 1 * currentScale; ctx.stroke();
+
+        if (currentScale > 0.45) {
+          const padding = 12 * currentScale;
+          const maxTextWidth = cardW - padding * 2;
+          
+          ctx.fillStyle = isHov || isSelected ? (isLight ? "#000" : "#fff") : (isLight ? "#1e293b" : "rgba(0, 242, 255, 0.9)"); 
+          ctx.font = `bold ${Math.floor(11 * currentScale)}px sans-serif`; ctx.textAlign = "left";
+          const titleLines = wrapText(ctx, n.node.title, maxTextWidth).slice(0, 2);
+          titleLines.forEach((line, i) => {
+            ctx.fillText(line, cx + padding, cy + (18 + i * 14) * currentScale);
+          });
+
+          ctx.fillStyle = isLight ? "rgba(0,0,0,0.4)" : "rgba(255, 255, 255, 0.5)"; ctx.font = `${Math.floor(7 * currentScale)}px monospace`;
+          ctx.fillText(`AUTH: SYSTEM | ${new Date(n.node.createdAt).toLocaleDateString()}`, cx + padding, cy + 48 * currentScale);
+          
+          ctx.fillStyle = isLight ? "rgba(0,0,0,0.6)" : "rgba(255, 255, 255, 0.7)"; ctx.font = `${Math.floor(9 * currentScale)}px sans-serif`;
+          const desc = n.node.description || (n.node.content ? n.node.content.slice(0, 60) : "No data");
+          const descLines = wrapText(ctx, desc, maxTextWidth).slice(0, 2);
+          descLines.forEach((line, i) => {
+            const yPos = cy + (62 + i * 11) * currentScale;
+            if (yPos < cy + cardH - padding / 2) ctx.fillText(line, cx + padding, yPos);
+          });
+        } else {
+           ctx.fillStyle = accent; ctx.font = `bold ${Math.floor(16 * currentScale)}px sans-serif`; ctx.textAlign = "center";
+           ctx.fillText(extractKeyword(n.node.title), n.x, n.y + 5 * currentScale);
+        }
+      });
+      rafId = requestAnimationFrame(render);
     };
+    render(); return () => cancelAnimationFrame(rafId);
+  }, [allNodes, nodePositions, hoveredNode, selectedNode, mousePos, isLight, connections]);
 
-    animFrameRef.current = requestAnimationFrame(tick);
-  }, [applySpringForces]);
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const s = state.current, rect = canvasRef.current!.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    let hitId = null;
+    const nodesSortedByDepth = allNodes.map(node => {
+      const base = nodePositions.get(node.id) || {x:0,y:0,z:0};
+      const final = add(base, s.nodeOffsets[node.id] || {x:0,y:0,z:0});
+      const rotated = rotateX(rotateY(final, s.yaw), s.pitch);
+      const distFromCenter = Math.sqrt(rotated.x**2 + rotated.y**2 + rotated.z**2);
+      const zoomWeight = 1 + (distFromCenter / 1200);
+      const perspective = 2500 / Math.max(50, 2500 + rotated.z + s.zoom * zoomWeight);
+      return { id: node.id, x: rect.width/2 + rotated.x*perspective + s.offsetX, y: rect.height/2 + rotated.y*perspective + s.offsetY, z: rotated.z, perspective };
+    }).sort((a, b) => a.z - b.z);
 
-  const handleNodeDragStart = useCallback((nodeId: number, e: React.PointerEvent) => {
-    if (e.button !== 0 || canPan(e)) return;
-    e.stopPropagation();
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
+    for (const n of nodesSortedByDepth) {
+      const hitRadius = n.perspective > 0.4 ? 80 * n.perspective : 30 * n.perspective;
+      if (Math.sqrt((mx-n.x)**2 + (my-n.y)**2) < hitRadius) { hitId = n.id; break; }
+    }
 
-    velocityRef.current.delete(nodeId);
+    const now = Date.now();
+    const isDoubleClick = now - s.lastClickTime < 300 && s.lastClickNodeId === hitId && hitId !== null;
+    s.lastClickTime = now; s.lastClickNodeId = hitId;
+    if (isDoubleClick && hitId !== null) { onNodeSelect(allNodes.find(n => n.id === hitId)!); return; }
 
-    const svgPt = screenToSvg(svgEl, e.clientX, e.clientY);
-    const off = nodeOffsets.current.get(nodeId) || { x: 0, y: 0 };
+    if (hitId !== null) { s.isDragging = true; s.lastX = e.clientX; s.lastY = e.clientY; s.dragMode = "node"; s.targetNodeId = hitId; }
+    else { s.isDragging = true; s.lastX = e.clientX; s.lastY = e.clientY; s.dragMode = e.button === 1 ? "pan" : "rotate"; }
+  };
 
-    didDragRef.current = false;
-    setDragState({ nodeId, startSvg: svgPt, startOffset: { ...off } });
-    lastDragPos.current = { x: svgPt.x, y: svgPt.y, t: performance.now() };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-  }, [canPan]);
-
-  const startDragSpringLoop = useCallback(() => {
-    if (dragSpringRef.current) return;
-    let last = performance.now();
-    const loop = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.05);
-      last = now;
-      const dragging = dragState;
-      if (dragging) {
-        applySpringForces(dragging.nodeId, dt);
-        forceUpdate(n => n + 1);
-        dragSpringRef.current = requestAnimationFrame(loop);
-      } else {
-        dragSpringRef.current = null;
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const s = state.current; setMousePos({ x: e.clientX, y: e.clientY });
+    if (s.isDragging) {
+      const dx = e.clientX - s.lastX, dy = e.clientY - s.lastY; s.lastX = e.clientX; s.lastY = e.clientY;
+      if (s.dragMode === "rotate") { s.yawVel = dx * 0.005; s.pitchVel = dy * 0.005; s.yaw += s.yawVel; s.pitch += s.pitchVel; }
+      else if (s.dragMode === "pan") { s.offsetX += dx; s.offsetY += dy; }
+      else if (s.dragMode === "node" && s.targetNodeId !== null) {
+        const moveScale = 1.5;
+        const moveX = rotateY({ x: dx * moveScale, y: 0, z: 0 }, -s.yaw), moveY = rotateX({ x: 0, y: dy * moveScale, z: 0 }, -s.pitch);
+        s.nodeOffsets[s.targetNodeId] = add(s.nodeOffsets[s.targetNodeId] || {x:0,y:0,z:0}, add(moveX, moveY));
       }
-    };
-    dragSpringRef.current = requestAnimationFrame(loop);
-  }, [dragState, applySpringForces]);
+    } else {
+      const rect = canvasRef.current!.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      let foundId = null;
+      for (const node of allNodes) {
+        const base = nodePositions.get(node.id) || {x:0,y:0,z:0};
+        const final = add(base, s.nodeOffsets[node.id] || {x:0,y:0,z:0});
+        const rotated = rotateX(rotateY(final, s.yaw), s.pitch);
+        const distFromCenter = Math.sqrt(rotated.x**2 + rotated.y**2 + rotated.z**2);
+        const zoomWeight = 1 + (distFromCenter / 1200);
+        const perspective = 2500 / Math.max(50, 2500 + rotated.z + s.zoom * zoomWeight);
+        const px = rect.width/2 + rotated.x*perspective + s.offsetX, py = rect.height/2 + rotated.y*perspective + s.offsetY;
+        const hitRadius = perspective > 0.4 ? 80 * perspective : 30 * perspective;
+        if (Math.sqrt((mx-px)**2 + (my-py)**2) < hitRadius) { foundId = node.id; break; }
+      }
+      setHoveredNode(foundId);
+    }
+  };
 
   useEffect(() => {
-    if (dragState) {
-      startDragSpringLoop();
-    }
-    return () => {
-      if (dragSpringRef.current) {
-        cancelAnimationFrame(dragSpringRef.current);
-        dragSpringRef.current = null;
-      }
-    };
-  }, [dragState, startDragSpringLoop]);
-
-  const handleNodeDragMove = useCallback((e: React.PointerEvent) => {
-    if (!dragState) return;
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
-
-    const svgPt = screenToSvg(svgEl, e.clientX, e.clientY);
-    const dx = svgPt.x - dragState.startSvg.x;
-    const dy = svgPt.y - dragState.startSvg.y;
-
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-      didDragRef.current = true;
-    }
-
-    nodeOffsets.current.set(dragState.nodeId, {
-      x: dragState.startOffset.x + dx,
-      y: dragState.startOffset.y + dy,
-    });
-
-    const now = performance.now();
-    const prev = lastDragPos.current;
-    if (prev) {
-      const elapsed = (now - prev.t) / 1000;
-      if (elapsed > 0.001) {
-        velocityRef.current.set(dragState.nodeId, {
-          vx: (svgPt.x - prev.x) / elapsed,
-          vy: (svgPt.y - prev.y) / elapsed,
-        });
-      }
-    }
-    lastDragPos.current = { x: svgPt.x, y: svgPt.y, t: now };
-
-    forceUpdate(n => n + 1);
-  }, [dragState]);
-
-  const handleNodeDragEnd = useCallback(() => {
-    if (!dragState) return;
-    setDragState(null);
-    lastDragPos.current = null;
-    startMomentumDecay();
-  }, [dragState, startMomentumDecay]);
-
-  useEffect(() => {
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (dragSpringRef.current) cancelAnimationFrame(dragSpringRef.current);
-    };
+    const upd = () => { setViewport({ width: window.innerWidth, height: window.innerHeight }); };
+    upd(); window.addEventListener("resize", upd);
+    const stp = () => { state.current.isDragging = false; };
+    window.addEventListener("pointerup", stp);
+    return () => { window.removeEventListener("resize", upd); window.removeEventListener("pointerup", stp); };
   }, []);
-
-  const focusNode = focusNodeId !== null ? allNodes.find((n) => n.id === focusNodeId) : null;
-  const centerLabel = focusNode ? focusNode.title : "Cogito";
-  const centerSublabel = focusNode ? LEVEL_NAMES[focusNode.level] : "나";
-
-  const maxRing = useMemo(() => {
-    if (positionedNodes.length === 0) return 3;
-    let maxDist = 0;
-    positionedNodes.forEach(({ x, y }) => {
-      const d = Math.sqrt(x * x + y * y);
-      if (d > maxDist) maxDist = d;
-    });
-    return Math.ceil(maxDist / 220) + 1;
-  }, [positionedNodes]);
 
   return (
-    <div
-      ref={containerRef}
-      className={`relative w-full bg-background overflow-hidden ${fullscreen ? "" : "rounded-2xl border border-border"}`}
-      style={fullscreen ? { width: "100%", height: "100%" } : { height: "calc(100vh - 200px)", minHeight: 500 }}
-      data-testid="mind-map"
-    >
-      <div className={`absolute ${fullscreen ? "bottom-4 right-4" : "top-4 right-4"} z-10 flex ${fullscreen ? "flex-row" : "flex-col"} gap-1.5`}>
-        <button
-          onClick={() => handleZoom(0.8)}
-          className="w-9 h-9 rounded-lg bg-card/90 backdrop-blur-sm border border-border/60 flex items-center justify-center hover:bg-muted transition-colors shadow-sm"
-          data-testid="button-zoom-in-map"
-        >
-          <ZoomIn className="w-4 h-4 text-foreground" />
-        </button>
-        <button
-          onClick={() => handleZoom(1.25)}
-          className="w-9 h-9 rounded-lg bg-card/90 backdrop-blur-sm border border-border/60 flex items-center justify-center hover:bg-muted transition-colors shadow-sm"
-          data-testid="button-zoom-out-map"
-        >
-          <ZoomOut className="w-4 h-4 text-foreground" />
-        </button>
-        <button
-          onClick={handleReset}
-          className="w-9 h-9 rounded-lg bg-card/90 backdrop-blur-sm border border-border/60 flex items-center justify-center hover:bg-muted transition-colors shadow-sm"
-          data-testid="button-fit-map"
-        >
-          <Maximize className="w-4 h-4 text-foreground" />
-        </button>
+    <div ref={containerRef} className={`fixed inset-0 w-full h-full ${isLight ? "bg-[#F8FAFC]" : "bg-[#020305]"} overflow-hidden touch-none cursor-none z-0 transition-colors duration-700`}>
+      <canvas ref={canvasRef} width={viewport.width} height={viewport.height} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onWheel={e => { e.preventDefault(); state.current.zoomVel = e.deltaY * 0.5; }} onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodeId: null, level: 1 }); }} className="block w-full h-full" />
+      
+      {/* HUD Cursor */}
+      <div className="pointer-events-none fixed z-[999] -translate-x-1/2 -translate-y-1/2 transition-transform duration-75" style={{ left: mousePos.x, top: mousePos.y }}>
+        <div className={`relative w-8 h-8 border ${isLight ? "border-slate-400" : "border-cyan-500/30"} rounded-full flex items-center justify-center transition-all ${hoveredNode ? "scale-150" : "scale-100"}`}>
+           <div className={`absolute w-full h-[1px] ${isLight ? "bg-slate-300" : "bg-cyan-500/20"}`} />
+           <div className={`absolute w-[1px] h-full ${isLight ? "bg-slate-300" : "bg-cyan-500/20"}`} />
+           {hoveredNode && <div className={`absolute inset-0 border-2 ${isLight ? "border-slate-400" : "border-cyan-400"} animate-ping opacity-20`} />}
+           <div className={`w-1 h-1 ${isLight ? "bg-slate-800" : "bg-cyan-400"} rounded-full`} />
+        </div>
       </div>
 
-      <svg
-        ref={svgRef}
-        width="100%"
-        height="100%"
-        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-        className={`select-none ${dragState ? "cursor-grabbing" : isPanning ? "cursor-grabbing" : spaceHeld ? "cursor-grab" : "cursor-default"}`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={(e) => {
-          handlePointerMove(e);
-          handleNodeDragMove(e);
-        }}
-        onPointerUp={(e) => {
-          handlePointerUp();
-          handleNodeDragEnd();
-        }}
-        onPointerLeave={() => {
-          handlePointerUp();
-          handleNodeDragEnd();
-        }}
-        onAuxClick={(e) => e.preventDefault()}
-        onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
-      >
-        <defs>
-          <radialGradient id="center-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.12" />
-            <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
-          </radialGradient>
-          {sectorWedges.map(({ nodeId, color }) => (
-            <radialGradient
-              key={`grad-${nodeId}`}
-              id={`sector-grad-${nodeId}`}
-              cx="0" cy="0" r="1600"
-              gradientUnits="userSpaceOnUse"
-            >
-              <stop offset="6%" stopColor={color} stopOpacity="0.22" />
-              <stop offset="55%" stopColor={color} stopOpacity="0.08" />
-              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-            </radialGradient>
-          ))}
-          <filter id="box-shadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="1" stdDeviation="3" floodColor="#8B5CF6" floodOpacity="0.12" />
-          </filter>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+      <div className="pointer-events-none absolute inset-0 opacity-[0.05]" style={{ backgroundImage: `linear-gradient(${isLight ? "#64748b" : "#00f2ff"} 1px, transparent 1px), linear-gradient(90deg, ${isLight ? "#64748b" : "#00f2ff"} 1px, transparent 1px)`, backgroundSize: "50px 50px" }} />
+      {!isLight && <div className="pointer-events-none absolute inset-0 opacity-[0.02]" style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, cyan 3px)" }} />}
 
-        <circle cx="0" cy="0" r="350" fill="url(#center-glow)" />
+      <div className={`absolute top-10 left-10 w-8 h-8 border-t-2 border-l-2 ${isLight ? "border-slate-300" : "border-cyan-500/30"} pointer-events-none`} />
+      <div className={`absolute top-10 right-10 w-8 h-8 border-t-2 border-r-2 ${isLight ? "border-slate-300" : "border-cyan-500/30"} pointer-events-none`} />
+      <div className={`absolute bottom-10 left-10 w-8 h-8 border-b-2 border-l-2 ${isLight ? "border-slate-300" : "border-cyan-500/30"} pointer-events-none`} />
+      <div className={`absolute bottom-10 right-10 w-8 h-8 border-b-2 border-r-2 ${isLight ? "border-slate-300" : "border-cyan-500/30"} pointer-events-none`} />
 
-        {/* Category sector backgrounds */}
-        {sectorWedges.map(({ nodeId, d, color, a1, a2 }) => (
-          <g key={`sector-${nodeId}`}>
-            {/* Gradient sector fill */}
-            <path
-              d={d}
-              fill={`url(#sector-grad-${nodeId})`}
-              stroke="none"
-            />
-            {/* Boundary divider lines – solid, more visible */}
-            <line
-              x1={108 * Math.cos(a2)} y1={108 * Math.sin(a2)}
-              x2={1900 * Math.cos(a2)} y2={1900 * Math.sin(a2)}
-              stroke={color}
-              strokeWidth={1.5}
-              strokeOpacity={0.55}
-            />
-          </g>
-        ))}
-        {/* Inner arc rings per sector, colored by category */}
-        {sectorWedges.map(({ nodeId, color, a1, a2 }) => {
-          const R = 108;
-          const sweep = a2 - a1;
-          const large = sweep > Math.PI ? 1 : 0;
-          const [c1, s1, c2, s2] = [Math.cos(a1), Math.sin(a1), Math.cos(a2), Math.sin(a2)];
-          return (
-            <path
-              key={`inner-arc-${nodeId}`}
-              d={`M ${R*c1} ${R*s1} A ${R} ${R} 0 ${large} 1 ${R*c2} ${R*s2}`}
-              fill="none"
-              stroke={color}
-              strokeWidth={2.5}
-              strokeOpacity={0.5}
-            />
-          );
-        })}
+      <div className={`pointer-events-auto absolute top-12 left-12 w-64 p-4 ${isLight ? "bg-white/80" : "bg-black/40"} backdrop-blur-md border ${isLight ? "border-slate-200" : "border-white/5"} shadow-2xl`}>
+         <HUD_Bracket pos="tl" isLight={isLight} /><HUD_Bracket pos="tr" isLight={isLight} /><HUD_Bracket pos="bl" isLight={isLight} /><HUD_Bracket pos="br" isLight={isLight} />
+         <div className={`flex items-center gap-3 mb-4 border-b ${isLight ? "border-slate-100" : "border-white/5"} pb-2`}><Activity className={`h-3 w-3 ${isLight ? "text-purple-600" : "text-cyan-400"} animate-pulse`} /><div className={`text-[9px] font-black uppercase tracking-[0.3em] ${isLight ? "text-slate-800" : "text-cyan-400/80"}`}>NEURAL_SYNC</div></div>
+         <div className={`space-y-1 font-mono text-[7px] ${isLight ? "text-slate-500" : "text-white/30"} uppercase tracking-widest`}>
+            <div className="flex justify-between"><span>NODES:</span> <span className={isLight ? "text-purple-700" : "text-cyan-400"}>{allNodes.length}</span></div>
+            <div className="flex justify-between"><span>LINKS:</span> <span className={isLight ? "text-purple-700" : "text-cyan-400"}>{connections.length}</span></div>
+            <div className="flex justify-between"><span>STATE:</span> <span className="text-green-500">NOMINAL</span></div>
+         </div>
+      </div>
 
-        {Array.from({ length: maxRing }, (_, i) => i + 1).map((ring) => (
-          <circle
-            key={ring}
-            cx="0"
-            cy="0"
-            r={240 * ring}
-            fill="none"
-            stroke="hsl(var(--border))"
-            strokeWidth="0.5"
-            opacity="0.3"
-            strokeDasharray="3 8"
-          />
-        ))}
-
-        {/* Article subtree grouping outlines (convex hull blobs) */}
-        {articleGroupPaths.map(({ id, path, color }) => (
-          <g key={`article-group-${id}`}>
-            {/* soft glow fill */}
-            <path
-              d={path}
-              fill={color}
-              fillOpacity={0.07}
-              stroke="none"
-            />
-            {/* solid outline */}
-            <path
-              d={path}
-              fill="none"
-              stroke={color}
-              strokeWidth={2.2}
-              strokeOpacity={0.60}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            {/* inner thin dash for texture */}
-            <path
-              d={path}
-              fill="none"
-              stroke={color}
-              strokeWidth={0.8}
-              strokeOpacity={0.25}
-              strokeDasharray="5 8"
-              strokeLinejoin="round"
-            />
-          </g>
-        ))}
-
-        {connectionEdges.map((edge) => {
-          const srcPn = posMap.get(edge.sourceId);
-          const tgtPn = posMap.get(edge.targetId);
-          if (!srcPn || !tgtPn) return null;
-          const srcPos = getNodePos(srcPn);
-          const tgtPos = getNodePos(tgtPn);
-          return (
-            <CurvedLink
-              key={edge.id}
-              x1={srcPos.x}
-              y1={srcPos.y}
-              x2={tgtPos.x}
-              y2={tgtPos.y}
-              color="#6366F1"
-              opacity={0.65}
-              isConnection
-            />
-          );
-        })}
-
-        {parentEdges.map((edge) => {
-          const childPn = posMap.get(edge.childId);
-          if (!childPn) return null;
-          const childPos = getNodePos(childPn);
-          let parentPos = { x: 0, y: 0 };
-          if (edge.parentNodeId !== null) {
-            const parentPn = posMap.get(edge.parentNodeId);
-            if (parentPn) parentPos = getNodePos(parentPn);
-          }
-          const edgeColor = nodeCategoryColorMap.get(edge.childId) || edge.color;
-          return (
-            <CurvedLink
-              key={edge.id}
-              x1={parentPos.x}
-              y1={parentPos.y}
-              x2={childPos.x}
-              y2={childPos.y}
-              color={edgeColor}
-              opacity={0.65}
-            />
-          );
-        })}
-
-        <g data-map-node="center" className="cursor-pointer" onClick={onAddNode}>
-          <foreignObject x="-85" y="-35" width="170" height="70" style={{ pointerEvents: "auto", overflow: "visible" }}>
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-violet-400 dark:border-violet-300 bg-card/95 backdrop-blur-sm shadow-lg shadow-violet-500/25 hover:border-violet-300 hover:shadow-violet-500/35 transition-all" style={{ height: 70 }}>
-              <span className="text-base font-bold text-foreground tracking-tight">{centerLabel}</span>
-              <span className="text-xs text-muted-foreground mt-0.5">{centerSublabel}</span>
-            </div>
-          </foreignObject>
-        </g>
-
-        {positionedNodes.map((pn) => {
-          const pos = getNodePos(pn);
-          const isSelected = selectedNode?.id === pn.node.id;
-          const isHovered = hoveredNode === pn.node.id;
-          const isDragging = dragState?.nodeId === pn.node.id;
-          const color = pn.node.color || NODE_COLORS[pn.node.level] || "#8B5CF6";
-          const children = allNodes.filter((n) => n.parentId === pn.node.id);
-          const hasChildren = children.length > 0;
-          const tierLabel = LEVEL_LABELS_KO[pn.node.level] || LEVEL_NAMES[pn.node.level];
-          const depth = pn.node.level;
-          const isArticle = pn.node.level === 2 && !!pn.node.content;
-          const isCategory = pn.node.level === 1;
-
-          const FONT_SIZES: Record<number, number> = { 1: 15, 2: 13, 3: 12, 4: 11, 5: 10, 6: 9 };
-          const FONT_WEIGHTS: Record<number, number> = { 1: 500, 2: 400, 3: 400, 4: 300, 5: 300, 6: 300 };
-          const fontSize = FONT_SIZES[depth] || 9;
-          const fontWeight = FONT_WEIGHTS[depth] || 400;
-
-          // Must match LAYOUT_BOX_W / LAYOUT_BOX_H in layoutRadialTree
-          const BOX_SIZES: Record<number, [number, number]> = {
-            1: [126, 40], 2: [172, 48], 3: [152, 38], 4: [138, 34], 5: [104, 28], 6: [90, 26]
-          };
-          const [boxW, boxH] = BOX_SIZES[depth] || [140, 34];
-          const bx = pos.x - boxW / 2;
-          const by = pos.y - boxH / 2;
-
-          const displayTitle = pn.node.level >= 3 && pn.node.level <= 6
-            ? `${tierLabel} : ${pn.node.title.replace(/^[^\p{L}\p{N}]*(지혜|지식|정보|데이터)\s*/u, "")}`
-            : pn.node.title;
-
-          const tierIcon = TIER_ICONS[pn.node.level] || "";
-
-          return (
-            <g
-              key={pn.node.id}
-              data-map-node={pn.node.id}
-              className={isDragging ? "cursor-grabbing" : "cursor-grab"}
-              onPointerEnter={() => setHoveredNode(pn.node.id)}
-              onPointerLeave={() => setHoveredNode(null)}
-              onPointerDown={(e) => handleNodeDragStart(pn.node.id, e)}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!didDragRef.current && pn.node.content) {
-                  setFullTextNode(pn.node);
-                }
-              }}
-              data-testid={`map-node-${pn.node.id}`}
-            >
-              <foreignObject
-                x={bx}
-                y={by}
-                width={boxW}
-                height={boxH + 18}
-                style={{ pointerEvents: "auto", overflow: "visible" }}
-              >
-                <div
-                  className={`flex items-center justify-center gap-1 rounded-md text-center leading-tight transition-all duration-200 ${
-                    depth >= 5 ? "px-1.5 py-0.5" : depth >= 3 ? "px-2 py-1" : "px-3 py-1.5"
-                  } ${
-                    isArticle
-                      ? "border-2 border-violet-500 dark:border-violet-400 bg-violet-950/90 dark:bg-violet-950/90 shadow-md shadow-violet-500/20 hover:shadow-violet-500/35 hover:border-violet-300"
-                      : isCategory
-                        ? "border-2 border-violet-500 dark:border-violet-400/80 bg-card shadow-sm hover:shadow-md"
-                        : "border border-violet-400/70 dark:border-violet-400/50 bg-card shadow-sm hover:shadow-md"
-                  } ${isDragging ? "ring-2 ring-primary/40 scale-105" : ""} ${
-                    isSelected ? "ring-2 ring-primary/60" : ""
-                  } ${isHovered && !isDragging ? "scale-[1.03]" : ""}`}
-                  style={{
-                    minHeight: boxH,
-                    maxHeight: boxH,
-                    overflow: "hidden",
-                    borderColor: isCategory
-                      ? (nodeCategoryColorMap.get(pn.node.id) ?? undefined)
-                      : !isArticle && (isSelected || isHovered) ? color : undefined,
-                    backgroundColor: isCategory
-                      ? `${nodeCategoryColorMap.get(pn.node.id) ?? '#8B5CF6'}1A`
-                      : undefined,
-                    boxShadow: isCategory
-                      ? `0 2px 8px ${(nodeCategoryColorMap.get(pn.node.id) ?? '#8B5CF6')}33`
-                      : undefined,
-                    transform: isDragging ? "scale(1.05)" : isHovered ? "scale(1.03)" : "scale(1)",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
-                  }}
-                  data-testid={isArticle ? `article-box-${pn.node.id}` : `label-box-${pn.node.id}`}
-                >
-                  {isArticle && (
-                    <FileText style={{ width: 14, height: 14, flexShrink: 0 }} className="text-violet-300" />
-                  )}
-                  <span
-                    className={`leading-tight line-clamp-2 ${
-                      isArticle ? "text-white" 
-                      : isCategory ? "text-foreground" 
-                      : "text-foreground"
-                    }`}
-                    style={{ fontSize, fontWeight, wordBreak: "keep-all", overflowWrap: "break-word" }}
-                  >
-                    {displayTitle}
-                  </span>
-                </div>
-                {(isHovered || isSelected) && !isDragging && (
-                  <div className="text-center mt-0.5" style={{ fontSize: Math.max(fontSize - 2, 8) }}>
-                    <span className="text-foreground/60 font-mono">
-                      {tierLabel}{hasChildren ? ` · ${children.length}` : ""}
-                    </span>
-                  </div>
-                )}
-              </foreignObject>
-            </g>
-          );
-        })}
-
-      </svg>
+      <div className={`pointer-events-none absolute bottom-12 right-12 flex gap-10 items-center p-3 ${isLight ? "bg-white/80" : "bg-black/40"} backdrop-blur-md border ${isLight ? "border-slate-200" : "border-white/5"} text-[7px] font-black ${isLight ? "text-slate-500" : "text-white/30"} uppercase tracking-[0.4em]`}>
+        <div className="flex items-center gap-2"><MousePointer2 className="h-2.5 w-2.5" /> [DRAG] Navigate</div>
+        <div className="flex items-center gap-2"><Zap className={`h-2.5 w-2.5 ${isLight ? "text-purple-600" : "text-cyan-400"}`} /> Interaction_Active</div>
+      </div>
 
       <AnimatePresence>
-        {fullTextNode && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md"
-            onClick={() => setFullTextNode(null)}
-            data-testid="fulltext-overlay"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.92, y: 24 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.92, y: 24 }}
-              transition={{ type: "spring", damping: 28, stiffness: 350 }}
-              className="relative w-[90%] max-w-lg max-h-[80%] rounded-2xl border border-violet-500/30 bg-card shadow-2xl shadow-violet-500/10 overflow-hidden flex flex-col"
-              onClick={(e) => e.stopPropagation()}
-              data-testid="fulltext-popup"
-            >
-              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40 bg-gradient-to-r from-violet-500/5 to-transparent">
-                <div className="w-9 h-9 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-4.5 h-4.5 text-violet-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-foreground truncate" data-testid="fulltext-title">
-                    {fullTextNode.title}
-                  </h3>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{fullTextNode.description}</p>
-                </div>
-                <button
-                  onClick={() => setFullTextNode(null)}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-muted transition-colors flex-shrink-0"
-                  data-testid="button-close-fulltext"
-                >
-                  <X className="w-4 h-4 text-muted-foreground" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto px-5 py-4">
-                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" data-testid="fulltext-content">
-                  {fullTextNode.content}
-                </p>
-              </div>
-            </motion.div>
+        {contextMenu && (
+          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} style={{ position: "fixed", left: contextMenu.x, top: contextMenu.y }} className={`z-[100] min-w-[160px] ${isLight ? "bg-white" : "bg-black"} border ${isLight ? "border-slate-200" : "border-cyan-500/30"} p-1 shadow-2xl`}>
+            <button className={`flex w-full items-center gap-3 px-4 py-2 text-[9px] font-black ${isLight ? "text-slate-800 hover:bg-slate-50" : "text-cyan-400 hover:bg-cyan-500/10"} transition-all uppercase tracking-widest`} onClick={() => { setManualAdd({ parentId: contextMenu.nodeId, level: contextMenu.level }); setContextMenu(null); }}><Plus className="h-3 w-3" /> APPEND_DAT</button>
+            {!contextMenu.nodeId && <button className={`flex w-full items-center gap-3 px-4 py-2 text-[9px] font-black ${isLight ? "text-purple-600 hover:bg-slate-50" : "text-purple-400 hover:bg-purple-500/10"} transition-all uppercase tracking-widest`} onClick={() => { onAddNode(); setContextMenu(null); }}><Sparkles className="h-3 w-3" /> NEURAL_RUN</button>}
           </motion.div>
         )}
       </AnimatePresence>
-
-      {positionedNodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="text-center pointer-events-auto">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mb-4">
-              <Plus className="w-8 h-8 text-primary" />
-            </div>
-            <p className="text-sm text-muted-foreground mb-3">
-              텍스트를 분석하여 지식을 구조화하세요
-            </p>
-            <button
-              onClick={onAddNode}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-              data-testid="button-add-first-node"
-            >
-              AI 분석 시작
-            </button>
-          </div>
-        </div>
-      )}
+      <AddNodeDialog open={!!manualAdd} onOpenChange={o => { if (!o) setManualAdd(null); }} parentId={manualAdd?.parentId ?? null} level={manualAdd?.level ?? 1} />
     </div>
   );
 }
