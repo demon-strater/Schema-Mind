@@ -1,0 +1,14 @@
+import { z } from "zod";
+import { LAYERS } from "@/lib/graph/types";
+const layer = z.union(Object.keys(LAYERS).map(Number).map((n) => z.literal(n as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8)) as [z.ZodLiteral<1>, z.ZodLiteral<2>, ...z.ZodLiteral<3 | 4 | 5 | 6 | 7 | 8>[]]);
+export const relationSchema = z.enum(["is-a", "part-of", "causes", "supports", "contradicts", "precedes"]);
+export const nodeSchema = z.object({ id: z.string(), label: z.string(), body: z.string(), layer, scope: z.enum(["session", "personal"]), sourceUrl: z.string().url().optional(), sourceTitle: z.string().optional(), participantId: z.string() });
+export const expandInputSchema = z.object({ query: z.string().trim().min(2).max(500), currentNode: nodeSchema.optional(), participantId: z.string().default("demo") });
+export const expandOutputSchema = z.object({ core: nodeSchema, neighbors: z.array(nodeSchema).min(5).max(8), edges: z.array(z.object({ id: z.string(), fromId: z.string(), toId: z.string(), type: relationSchema, state: z.literal("proposed"), confidence: z.number().min(0).max(1), proposedBy: z.literal("llm"), participantId: z.string() })), contradictionStatus: z.enum(["found", "not_found"]) });
+export const argumentInputSchema = z.object({ text: z.string().trim().min(20).max(20000) });
+export const roleSchema = z.enum(["claim", "data", "warrant", "qualifier", "rebuttal"]);
+export const argumentOutputSchema = z.object({ slots: z.array(z.object({ id: z.string(), role: roleSchema, text: z.string().nullable(), status: z.enum(["identified", "empty", "user_filled", "suggestion_pending", "suggestion_accepted", "suggestion_edited", "suggestion_rejected"]), confidence: z.number().min(0).max(1), sourceSpan: z.tuple([z.number(), z.number()]).optional() })).length(5) });
+export const anchorInputSchema = z.object({ newNode: nodeSchema, personalGraphSummary: z.array(nodeSchema).max(100) });
+export const anchorOutputSchema = z.object({ candidates: z.array(z.object({ nodeId: z.string(), label: z.string(), relationType: relationSchema, confidence: z.number().min(0).max(1), rationale: z.string() })).max(3) });
+export const scopeInputSchema = z.object({ topic: z.string().trim().min(2).max(300) });
+export const scopeOutputSchema = z.object({ lines: z.array(z.string()).min(3).max(5) });

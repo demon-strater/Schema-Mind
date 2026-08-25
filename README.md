@@ -1,40 +1,33 @@
-# SchemaMind
+# Schema Mind
 
-SchemaMind is a full-stack React + Express app with PostgreSQL storage and OpenAI-powered text analysis.
+생성형 AI 환경에서 지식 구조화를 지원하는 인지과학 기반 연구용 웹 애플리케이션입니다. 시스템은 관계를 제안하고 사용자가 관계를 확정합니다.
 
-## Public Deployment
+## 실행
 
-This repository is prepared for deployment on Render using the included [`render.yaml`](./render.yaml).
+```bash
+pnpm install
+pnpm db:migrate
+pnpm seed
+pnpm dev
+```
 
-### What gets created
+브라우저에서 `http://localhost:3000`을 엽니다. 기본값은 API 키 없이 동작하는 검수된 mock 코퍼스입니다.
 
-- One Node web service
-- One managed PostgreSQL database
+## 주요 경로
 
-### Required environment variables
+- `/cluster`: KnowledgeCluster
+- `/canvas`: LogicCanvas
+- `/schema`: SchemaMind
+- `/study/study-c`, `/study/study-a`, `/study/study-at`, `/study/study-f`: 조건별 시드 참가자
+- `/admin/score`: 인용 이원 평정과 Cohen’s κ
+- `/admin/export`: CSV/JSON 내보내기
 
-- `OPENAI_API_KEY`
-- `DATABASE_URL` is wired automatically by Render blueprint
+## 검증
 
-### Deploy on Render
+```bash
+pnpm verify
+pnpm test:e2e
+pnpm build
+```
 
-1. Push this repository to GitHub.
-2. In Render, choose `New +` -> `Blueprint`.
-3. Select this repository.
-4. Confirm creation of the `schemamind` web service and `schemamind-db` database.
-5. Set `OPENAI_API_KEY` in the Render dashboard.
-6. Deploy.
-
-After the first successful deploy, Render will issue a public HTTPS URL in this form:
-
-`https://schemamind.onrender.com`
-
-The exact hostname can differ if that name is already taken.
-
-## Local Run
-
-1. Set `.env` from `.env.example`.
-2. Start PostgreSQL with `docker compose up -d db`.
-3. Apply schema with `npm run db:push`.
-4. Start the app with `npm run dev`.
-5. Open `http://localhost:5000`.
+개발 DB는 SQLite를 사용합니다. 운영 배포에서는 동일한 논리 모델의 PostgreSQL 데이터 소스를 사용하며 운영 비밀과 관리자 접근 통제를 배포 환경에서 설정해야 합니다.

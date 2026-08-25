@@ -1,0 +1,2 @@
+const kinds=["events","participants","metrics"] as const;
+export default function ExportPage(){return <main className="page"><header className="page-title"><p>관리자</p><h1>연구 데이터 내보내기</h1><span>원본 이벤트와 분석용 wide 지표를 내려받습니다.</span></header><section className="export-grid">{kinds.map((kind)=><article className="surface" key={kind}><h2>{kind}</h2><a className="button" href={`/api/admin/export?kind=${kind}&format=csv`}>CSV 다운로드</a><a href={`/api/admin/export?kind=${kind}&format=json`}>JSON 다운로드</a></article>)}</section></main>}

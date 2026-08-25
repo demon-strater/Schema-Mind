@@ -1,0 +1,2 @@
+import { scopeInputSchema, scopeOutputSchema } from "@/lib/llm/schemas"; import { mockScope } from "@/lib/llm/mock";
+export async function POST(request: Request) { const input = scopeInputSchema.safeParse(await request.json().catch(() => null)); if (!input.success) return Response.json({ error: "invalid_input" }, { status: 400 }); return Response.json(scopeOutputSchema.parse(mockScope(input.data.topic))); }

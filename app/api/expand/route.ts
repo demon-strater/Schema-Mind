@@ -1,0 +1,2 @@
+import { expandInputSchema, expandOutputSchema } from "@/lib/llm/schemas"; import { mockExpand } from "@/lib/llm/mock";
+export async function POST(request: Request) { const input = expandInputSchema.safeParse(await request.json().catch(() => null)); if (!input.success) return Response.json({ error: "invalid_input" }, { status: 400 }); return Response.json(expandOutputSchema.parse(mockExpand(input.data))); }

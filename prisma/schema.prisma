@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Participant {
+  id              String               @id
+  condition       String
+  assignmentBlock Int
+  enrolledAt      DateTime             @default(now())
+  day1CompletedAt DateTime?
+  day8CompletedAt DateTime?
+  droppedOutAt    DateTime?
+  sessions        StudySession[]
+  events          StudyEvent[]
+  nodes           KNode[]
+  edges           KEdge[]
+  assessments     AssessmentResponse[]
+  citationClaims  CitationClaim[]
+  llmUsage        LlmUsage[]
+
+  @@index([condition])
+}
+
+model StudySession {
+  id              String       @id @default(cuid())
+  participantId   String
+  sessionDay      Int
+  accessTokenHash String       @unique
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  participant     Participant  @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  events          StudyEvent[]
+
+  @@unique([participantId, sessionDay])
+}
+
+model StudyEvent {
+  id            String       @id
+  participantId String
+  sessionId     String
+  condition     String
+  sessionDay    Int
+  type          String
+  payload       Json
+  clientTs      Float
+  serverTs      DateTime     @default(now())
+  participant   Participant  @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  session       StudySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@index([participantId, serverTs])
+  @@index([type])
+}
+
+model KNode {
+  id            String           @id
+  label         String
+  body          String
+  layer         Int
+  scope         String
+  sourceUrl     String?
+  sourceTitle   String?
+  createdAt     DateTime         @default(now())
+  participantId String
+  participant   Participant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  outgoingEdges KEdge[]          @relation("EdgeFrom")
+  incomingEdges KEdge[]          @relation("EdgeTo")
+  unanchored    UnanchoredItem[]
+
+  @@index([participantId, scope])
+}
+
+model KEdge {
+  id            String      @id
+  fromId        String
+  toId          String
+  type          String
+  state         String
+  confidence    Float
+  proposedBy    String
+  confirmedAt   DateTime?
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  from          KNode       @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to            KNode       @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([participantId, state])
+  @@index([fromId, toId])
+}
+
+model UnanchoredItem {
+  id          String    @id @default(cuid())
+  nodeId      String
+  deferredAt  DateTime  @default(now())
+  reproposeAt DateTime
+  resolvedAt  DateTime?
+  node        KNode     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@index([reproposeAt, resolvedAt])
+}
+
+model LlmCache {
+  key           String   @id
+  normalizedKey String
+  model         String
+  promptVersion String
+  response      Json
+  createdAt     DateTime @default(now())
+
+  @@index([normalizedKey, model, promptVersion])
+}
+
+model LlmUsage {
+  id            String       @id @default(cuid())
+  participantId String?
+  model         String
+  promptVersion String
+  inputTokens   Int
+  outputTokens  Int
+  estimatedUsd  Float
+  createdAt     DateTime     @default(now())
+  participant   Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  @@index([participantId, createdAt])
+}
+
+model AssessmentResponse {
+  id            String      @id @default(cuid())
+  participantId String
+  sessionDay    Int
+  instrument    String
+  itemId        String
+  response      Json
+  score         Float?
+  submittedAt   DateTime    @default(now())
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, sessionDay, instrument, itemId])
+}
+
+model CitationClaim {
+  id            String           @id @default(cuid())
+  participantId String
+  claimText     String
+  sourceUrl     String?
+  sourceTitle   String
+  createdAt     DateTime         @default(now())
+  participant   Participant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  ratings       CitationRating[]
+
+  @@index([participantId])
+}
+
+model CitationRating {
+  id           String        @id @default(cuid())
+  claimId      String
+  raterId      String
+  supports     Boolean
+  ratedAt      DateTime      @default(now())
+  supersedesId String?
+  claim        CitationClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, raterId])
+}

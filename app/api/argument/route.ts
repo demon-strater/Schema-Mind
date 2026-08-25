@@ -1,0 +1,2 @@
+import { argumentInputSchema, argumentOutputSchema } from "@/lib/llm/schemas"; import { mockArgument } from "@/lib/llm/mock";
+export async function POST(request: Request) { const input = argumentInputSchema.safeParse(await request.json().catch(() => null)); if (!input.success) return Response.json({ error: "invalid_input" }, { status: 400 }); return Response.json(argumentOutputSchema.parse(mockArgument(input.data))); }

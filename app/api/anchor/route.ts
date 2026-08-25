@@ -1,0 +1,2 @@
+import { anchorInputSchema, anchorOutputSchema } from "@/lib/llm/schemas"; import { mockAnchor } from "@/lib/llm/mock";
+export async function POST(request: Request) { const input = anchorInputSchema.safeParse(await request.json().catch(() => null)); if (!input.success) return Response.json({ error: "invalid_input" }, { status: 400 }); return Response.json(anchorOutputSchema.parse(mockAnchor(input.data))); }
