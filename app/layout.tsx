@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Link from "next/link";
+import { SiteChrome } from "@/components/site-chrome";
 
 export const metadata: Metadata = {
   title: "Schema Mind",
@@ -11,7 +11,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="ko">
       <body>
-        <header className="topbar"><Link href="/" className="brand">Schema Mind</Link><nav><Link href="/cluster">수집</Link><Link href="/canvas">검토</Link><Link href="/schema">통합</Link><Link href="/study/demo-001">실험</Link></nav></header>
+        <SiteChrome />
         {children}
       </body>
     </html>

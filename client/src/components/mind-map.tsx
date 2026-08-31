@@ -3,6 +3,7 @@ import { type KnowledgeNode, type Connection } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
 import { MousePointer2, ZoomIn, Plus, Sparkles, Activity, Crosshair, Box, Zap } from "lucide-react";
 import { AddNodeDialog } from "./add-node-dialog";
+import { getTeamMemberIndex, getTeamNodeColor, TEAM_MEMBERS } from "@/lib/team-mode";
 
 interface MindMapProps {
   allNodes: KnowledgeNode[];
@@ -12,10 +13,13 @@ interface MindMapProps {
   selectedNode: KnowledgeNode | null;
   focusNodeId: number | null;
   onAddNode: () => void;
+  teamMode?: boolean;
+  teamMemberIndex?: number;
   fullscreen?: boolean;
 }
 
 type Vec3 = { x: number; y: number; z: number };
+type RelatedFocus = { sourceId: number; targetIds: number[] };
 
 const BACKRONYM_CYAN = "#00f2ff";
 const BACKRONYM_BG = "#020305";
@@ -74,14 +78,66 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines;
 }
 
-export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selectedNode, focusNodeId, onAddNode, fullscreen }: MindMapProps) {
+function tokenizeNode(node: KnowledgeNode): Set<string> {
+  const text = `${node.title} ${node.description ?? ""} ${node.content ?? ""}`.toLowerCase();
+  const words = text.match(/[a-z0-9가-힣]{2,}/g) ?? [];
+  const tokens = new Set(words.filter((word) => word.length <= 24));
+  const compactKorean = (text.match(/[가-힣]{2,}/g) ?? []).join("");
+  for (let i = 0; i < compactKorean.length - 1; i++) {
+    tokens.add(compactKorean.slice(i, i + 2));
+  }
+  return tokens;
+}
+
+function directlyConnected(a: KnowledgeNode, b: KnowledgeNode, connections: Connection[]) {
+  return (
+    a.parentId === b.id ||
+    b.parentId === a.id ||
+    connections.some((conn) =>
+      (conn.sourceId === a.id && conn.targetId === b.id) ||
+      (conn.sourceId === b.id && conn.targetId === a.id)
+    )
+  );
+}
+
+function findRelatedNodeIds(sourceId: number, allNodes: KnowledgeNode[], connections: Connection[]) {
+  const source = allNodes.find((node) => node.id === sourceId);
+  if (!source) return [];
+
+  const sourceTokens = tokenizeNode(source);
+  return allNodes
+    .filter((node) => node.id !== sourceId && !directlyConnected(source, node, connections))
+    .map((node) => {
+      const nodeTokens = tokenizeNode(node);
+      let shared = 0;
+      sourceTokens.forEach((token) => {
+        if (nodeTokens.has(token)) shared++;
+      });
+
+      const structureScore =
+        (node.level === source.level ? 2 : 0) +
+        (node.parentId !== null && node.parentId === source.parentId ? 2 : 0) +
+        (Math.abs(node.level - source.level) === 1 ? 0.75 : 0);
+
+      return { id: node.id, score: shared * 1.5 + structureScore };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((item) => item.id);
+}
+
+export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selectedNode, focusNodeId, onAddNode, teamMode = false, teamMemberIndex = 0, fullscreen }: MindMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const pressStartRef = useRef<{ x: number; y: number; nodeId: number | null } | null>(null);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [manualAdd, setManualAdd] = useState<{ parentId: number | null, level: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: number | null, level: number } | null>(null);
+  const [relatedFocus, setRelatedFocus] = useState<RelatedFocus | null>(null);
   const [isLight, setIsLight] = useState(false);
 
   useEffect(() => {
@@ -108,6 +164,14 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
     lastClickTime: 0, lastClickNodeId: null as number | null,
     frame: 0
   });
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    pressStartRef.current = null;
+  }, []);
 
   useEffect(() => {
     state.current.particles = connections.map(c => ({
@@ -155,6 +219,26 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
     const render = () => {
       const s = state.current;
       s.frame++;
+
+      const grabbedNodeId = s.isDragging && s.dragMode === "node" ? s.targetNodeId : null;
+      const relatedNodeIds = new Set<number>();
+      if (relatedFocus) {
+        relatedNodeIds.add(relatedFocus.sourceId);
+        relatedFocus.targetIds.forEach((id) => relatedNodeIds.add(id));
+      }
+      const isRelationMode = relatedNodeIds.size > 0;
+      const focusedNodeIds = new Set<number>();
+      const focusedConnectionKeys = new Set<string>();
+      if (grabbedNodeId !== null) {
+        focusedNodeIds.add(grabbedNodeId);
+        connections.forEach((conn) => {
+          if (conn.sourceId === grabbedNodeId || conn.targetId === grabbedNodeId) {
+            focusedNodeIds.add(conn.sourceId);
+            focusedNodeIds.add(conn.targetId);
+            focusedConnectionKeys.add(`${conn.sourceId}:${conn.targetId}`);
+          }
+        });
+      }
       
       s.zoom += s.zoomVel;
       s.zoomVel *= 0.85;
@@ -164,60 +248,35 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
         s.yawVel *= 0.95; s.pitchVel *= 0.95; 
       }
 
-      // Advanced Physics Simulation: Spring-Mass System with Decay
-      const pk = 0.04; // Elastic constant
-      const pdamping = 0.82; // Resistance
+      // Physics Simulation: Reinforced Spring-Mass System
+      const pk = 0.12; // Much stronger spring constant
+      const pdamping = 0.78; // Higher air resistance for stability
       
-      connections.forEach(conn => {
-        const srcId = conn.sourceId, tgtId = conn.targetId;
-        const offSrc = s.nodeOffsets[srcId] || {x:0,y:0,z:0};
-        const offTgt = s.nodeOffsets[tgtId] || {x:0,y:0,z:0};
-        
-        const dx = offSrc.x - offTgt.x;
-        const dy = offSrc.y - offTgt.y;
-        const dz = offSrc.z - offTgt.z;
-        
-        const vSrc = s.nodeVelocities[srcId] || {x:0,y:0,z:0};
-        const vTgt = s.nodeVelocities[tgtId] || {x:0,y:0,z:0};
-        
-        if (s.targetNodeId !== srcId) {
-          s.nodeVelocities[srcId] = { 
-            x: vSrc.x - dx * pk, 
-            y: vSrc.y - dy * pk, 
-            z: vSrc.z - dz * pk 
-          };
-        }
-        if (s.targetNodeId !== tgtId) {
-          s.nodeVelocities[tgtId] = { 
-            x: vTgt.x + dx * pk, 
-            y: vTgt.y + dy * pk, 
-            z: vTgt.z + dz * pk 
-          };
-        }
-      });
+      // Calculate forces for multiple iterations per frame for tighter connection
+      for(let i=0; i<2; i++) {
+        connections.forEach(conn => {
+          const srcId = conn.sourceId, tgtId = conn.targetId;
+          const offSrc = s.nodeOffsets[srcId] || {x:0,y:0,z:0}, offTgt = s.nodeOffsets[tgtId] || {x:0,y:0,z:0};
+          const dx = offSrc.x - offTgt.x, dy = offSrc.y - offTgt.y, dz = offSrc.z - offTgt.z;
+          const vSrc = s.nodeVelocities[srcId] || {x:0,y:0,z:0}, vTgt = s.nodeVelocities[tgtId] || {x:0,y:0,z:0};
+          
+          if (s.targetNodeId !== srcId) {
+            s.nodeVelocities[srcId] = { x: vSrc.x - dx * pk, y: vSrc.y - dy * pk, z: vSrc.z - dz * pk };
+          }
+          if (s.targetNodeId !== tgtId) {
+            s.nodeVelocities[tgtId] = { x: vTgt.x + dx * pk, y: vTgt.y + dy * pk, z: vTgt.z + dz * pk };
+          }
+        });
 
-      allNodes.forEach(node => {
-        const id = node.id;
-        if (s.isDragging && s.dragMode === "node" && s.targetNodeId === id) return;
-
-        const v = s.nodeVelocities[id] || {x:0,y:0,z:0};
-        const o = s.nodeOffsets[id] || {x:0,y:0,z:0};
-        
-        // Restorative force (pulling back to origin)
-        const rx = -o.x * 0.015, ry = -o.y * 0.015, rz = -o.z * 0.015;
-
-        s.nodeVelocities[id] = { 
-          x: (v.x + rx) * pdamping, 
-          y: (v.y + ry) * pdamping, 
-          z: (v.z + rz) * pdamping 
-        };
-        
-        s.nodeOffsets[id] = { 
-          x: o.x + s.nodeVelocities[id].x, 
-          y: o.y + s.nodeVelocities[id].y, 
-          z: o.z + s.nodeVelocities[id].z 
-        };
-      });
+        allNodes.forEach(node => {
+          const id = node.id;
+          if (s.isDragging && s.dragMode === "node" && s.targetNodeId === id) return;
+          const v = s.nodeVelocities[id] || {x:0,y:0,z:0}, o = s.nodeOffsets[id] || {x:0,y:0,z:0};
+          const rx = -o.x * 0.05, ry = -o.y * 0.05, rz = -o.z * 0.05; // Stronger restorative
+          s.nodeVelocities[id] = { x: (v.x + rx) * pdamping, y: (v.y + ry) * pdamping, z: (v.z + rz) * pdamping };
+          s.nodeOffsets[id] = { x: o.x + s.nodeVelocities[id].x, y: o.y + s.nodeVelocities[id].y, z: o.z + s.nodeVelocities[id].z };
+        });
+      }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
@@ -254,14 +313,22 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
         if (node.parentId !== null) {
           const src = projMap.get(node.id), tgt = projMap.get(node.parentId);
           if (src && tgt) {
-            ctx.globalAlpha = Math.max(0.1, 0.4 * Math.min(src.scale, tgt.scale));
+            const isRelatedConnection = isRelationMode && relatedNodeIds.has(node.id) && relatedNodeIds.has(node.parentId);
+            const isFocused = isRelationMode ? isRelatedConnection : grabbedNodeId === null || focusedConnectionKeys.has(`${node.id}:${node.parentId}`);
+            const connectionAlpha = Math.max(0.1, 0.4 * Math.min(src.scale, tgt.scale));
+            ctx.globalAlpha = isFocused ? connectionAlpha : connectionAlpha * 0.05;
             ctx.beginPath(); ctx.moveTo(src.x, src.y);
             const dx = tgt.x - src.x, dy = tgt.y - src.y, dist = Math.sqrt(dx*dx + dy*dy) || 1;
             const nx = -dy/dist, ny = dx/dist, bend = Math.min(50, dist * 0.15);
             
             const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
-            grad.addColorStop(0, isLight ? "rgba(109, 40, 217, 0.6)" : "rgba(0, 242, 255, 0.8)");
-            grad.addColorStop(1, isLight ? "rgba(139, 92, 246, 0.2)" : "rgba(168, 85, 247, 0.4)");
+            if (teamMode) {
+              grad.addColorStop(0, `${getTeamNodeColor(node)}cc`);
+              grad.addColorStop(1, `${getTeamNodeColor(node)}44`);
+            } else {
+              grad.addColorStop(0, isLight ? "rgba(109, 40, 217, 0.6)" : "rgba(0, 242, 255, 0.8)");
+              grad.addColorStop(1, isLight ? "rgba(139, 92, 246, 0.2)" : "rgba(168, 85, 247, 0.4)");
+            }
             ctx.strokeStyle = grad;
             ctx.lineWidth = Math.max(0.5, 2 * Math.min(src.scale, tgt.scale));
 
@@ -270,7 +337,7 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
             ctx.stroke();
 
             // Flux Particles
-            s.particles.filter(p => p.nodeId === node.id && p.parentId === node.parentId).forEach(p => {
+            if (isFocused) s.particles.filter(p => p.nodeId === node.id && p.parentId === node.parentId).forEach(p => {
               const t = p.progress;
               const px = (1-t)**2 * src.x + 2*(1-t)*t * cpX + t**2 * tgt.x;
               const py = (1-t)**2 * src.y + 2*(1-t)*t * cpY + t**2 * tgt.y;
@@ -284,9 +351,49 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
         }
       });
 
+      if (relatedFocus) {
+        const source = projMap.get(relatedFocus.sourceId);
+        if (source) {
+          relatedFocus.targetIds.forEach((targetId, index) => {
+            const target = projMap.get(targetId);
+            if (!target) return;
+            const dx = target.x - source.x, dy = target.y - source.y, dist = Math.sqrt(dx*dx + dy*dy) || 1;
+            const nx = -dy / dist, ny = dx / dist;
+            const bend = (index % 2 === 0 ? 1 : -1) * Math.min(90, dist * 0.22);
+            const cpX = (source.x + target.x) / 2 + nx * bend;
+            const cpY = (source.y + target.y) / 2 + ny * bend;
+            const relationColor = isLight ? "rgba(217, 119, 6, 0.95)" : "rgba(255, 184, 77, 0.95)";
+
+            ctx.save();
+            ctx.globalAlpha = 0.9;
+            ctx.shadowBlur = 18;
+            ctx.shadowColor = relationColor;
+            ctx.strokeStyle = relationColor;
+            ctx.lineWidth = Math.max(1.5, 3 * Math.min(source.scale, target.scale));
+            ctx.setLineDash([12, 8]);
+            ctx.beginPath();
+            ctx.moveTo(source.x, source.y);
+            ctx.quadraticCurveTo(cpX, cpY, target.x, target.y);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.fillStyle = relationColor;
+            const pulse = 0.5 + Math.sin((s.frame + index * 12) * 0.08) * 0.5;
+            const px = (1-pulse)**2 * source.x + 2*(1-pulse)*pulse * cpX + pulse**2 * target.x;
+            const py = (1-pulse)**2 * source.y + 2*(1-pulse)*pulse * cpY + pulse**2 * target.y;
+            ctx.beginPath();
+            ctx.arc(px, py, Math.max(2, 4 * Math.min(source.scale, target.scale)), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          });
+        }
+      }
+
       // Draw Nodes
       nodesProjected.forEach(n => {
         const isSelected = selectedNode?.id === n.id, isHov = hoveredNode === n.id;
+        const isFocused = isRelationMode ? relatedNodeIds.has(n.id) : grabbedNodeId === null || focusedNodeIds.has(n.id);
+        const nodeAccent = teamMode ? getTeamNodeColor(n.node) : accent;
         const hoverScale = (isHov || isSelected) ? 1.25 : 1.0;
         const currentScale = n.scale * hoverScale;
         
@@ -296,13 +403,14 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
           gy = (Math.random() - 0.5) * 4 * currentScale;
         }
 
-        ctx.globalAlpha = Math.max(0.2, Math.min(1, currentScale * 1.5));
+        const nodeAlpha = Math.max(0.2, Math.min(1, currentScale * 1.5));
+        ctx.globalAlpha = isFocused ? nodeAlpha : nodeAlpha * 0.1;
         const cardW = 160 * currentScale, cardH = 80 * currentScale;
         const cx = n.x - cardW / 2 + gx, cy = n.y - cardH / 2 + gy;
         const radius = 6 * currentScale;
 
         // Chromatic Aberration / Glitch Effect
-        if (isHov || isSelected) {
+        if (isFocused && (isHov || isSelected || grabbedNodeId === n.id || relatedFocus?.sourceId === n.id)) {
           ctx.strokeStyle = "rgba(255, 0, 80, 0.4)"; ctx.lineWidth = 2 * currentScale;
           ctx.strokeRect(cx - 2, cy, cardW, cardH);
           ctx.strokeStyle = "rgba(0, 255, 255, 0.4)";
@@ -322,8 +430,11 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
         ctx.beginPath(); ctx.roundRect(cx, cy, cardW, cardH, radius);
         ctx.fillStyle = cardBg; ctx.fill();
 
-        if (isHov || isSelected) { ctx.shadowBlur = 25; ctx.shadowColor = accent; ctx.strokeStyle = accent; ctx.lineWidth = 2 * currentScale; }
-        else { ctx.shadowBlur = 5; ctx.shadowColor = isLight ? "rgba(0,0,0,0.05)" : "rgba(0, 242, 255, 0.2)"; ctx.strokeStyle = isLight ? "rgba(0,0,0,0.15)" : "rgba(0, 242, 255, 0.4)"; ctx.lineWidth = 0.5 * currentScale; }
+        if (isFocused && (isHov || isSelected || grabbedNodeId === n.id || relatedFocus?.sourceId === n.id)) {
+          const activeAccent = relatedFocus ? (isLight ? "#d97706" : "#ffb84d") : nodeAccent;
+          ctx.shadowBlur = 25; ctx.shadowColor = activeAccent; ctx.strokeStyle = activeAccent; ctx.lineWidth = 2 * currentScale;
+        }
+        else { ctx.shadowBlur = 5; ctx.shadowColor = isLight ? "rgba(0,0,0,0.05)" : `${nodeAccent}33`; ctx.strokeStyle = teamMode ? `${nodeAccent}aa` : isLight ? "rgba(0,0,0,0.15)" : "rgba(0, 242, 255, 0.4)"; ctx.lineWidth = 0.5 * currentScale; }
         ctx.stroke(); ctx.shadowBlur = 0;
 
         const bl = 10 * currentScale; ctx.beginPath();
@@ -331,13 +442,13 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
         ctx.moveTo(cx + cardW - bl, cy); ctx.lineTo(cx + cardW, cy); ctx.lineTo(cx + cardW, cy + bl);
         ctx.moveTo(cx, cy + cardH - bl); ctx.lineTo(cx, cy + cardH); ctx.lineTo(cx + bl, cy + cardH);
         ctx.moveTo(cx + cardW - bl, cy + cardH); ctx.lineTo(cx + cardW, cy + cardH); ctx.lineTo(cx + cardW, cy + cardH - bl);
-        ctx.strokeStyle = isHov || isSelected ? (isLight ? "#000" : "#fff") : (isLight ? "rgba(0,0,0,0.3)" : "rgba(0, 242, 255, 0.7)"); ctx.lineWidth = 1 * currentScale; ctx.stroke();
+        ctx.strokeStyle = isFocused && (isHov || isSelected || grabbedNodeId === n.id || relatedFocus?.sourceId === n.id) ? (isLight ? "#000" : "#fff") : (teamMode ? nodeAccent : isLight ? "rgba(0,0,0,0.3)" : "rgba(0, 242, 255, 0.7)"); ctx.lineWidth = 1 * currentScale; ctx.stroke();
 
         if (currentScale > 0.45) {
           const padding = 12 * currentScale;
           const maxTextWidth = cardW - padding * 2;
           
-          ctx.fillStyle = isHov || isSelected ? (isLight ? "#000" : "#fff") : (isLight ? "#1e293b" : "rgba(0, 242, 255, 0.9)"); 
+          ctx.fillStyle = isFocused && (isHov || isSelected || grabbedNodeId === n.id || relatedFocus?.sourceId === n.id) ? (isLight ? "#000" : "#fff") : (teamMode ? nodeAccent : isLight ? "#1e293b" : "rgba(0, 242, 255, 0.9)"); 
           ctx.font = `bold ${Math.floor(11 * currentScale)}px sans-serif`; ctx.textAlign = "left";
           const titleLines = wrapText(ctx, n.node.title, maxTextWidth).slice(0, 2);
           titleLines.forEach((line, i) => {
@@ -355,14 +466,14 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
             if (yPos < cy + cardH - padding / 2) ctx.fillText(line, cx + padding, yPos);
           });
         } else {
-           ctx.fillStyle = accent; ctx.font = `bold ${Math.floor(16 * currentScale)}px sans-serif`; ctx.textAlign = "center";
+           ctx.fillStyle = nodeAccent; ctx.font = `bold ${Math.floor(16 * currentScale)}px sans-serif`; ctx.textAlign = "center";
            ctx.fillText(extractKeyword(n.node.title), n.x, n.y + 5 * currentScale);
         }
       });
       rafId = requestAnimationFrame(render);
     };
     render(); return () => cancelAnimationFrame(rafId);
-  }, [allNodes, nodePositions, hoveredNode, selectedNode, mousePos, isLight, connections]);
+  }, [allNodes, nodePositions, hoveredNode, selectedNode, mousePos, isLight, connections, relatedFocus, teamMode]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const s = state.current, rect = canvasRef.current!.getBoundingClientRect();
@@ -388,12 +499,30 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
     s.lastClickTime = now; s.lastClickNodeId = hitId;
     if (isDoubleClick && hitId !== null) { onNodeSelect(allNodes.find(n => n.id === hitId)!); return; }
 
-    if (hitId !== null) { s.isDragging = true; s.lastX = e.clientX; s.lastY = e.clientY; s.dragMode = "node"; s.targetNodeId = hitId; }
-    else { s.isDragging = true; s.lastX = e.clientX; s.lastY = e.clientY; s.dragMode = e.button === 1 ? "pan" : "rotate"; }
+    if (hitId !== null) {
+      s.isDragging = true; s.lastX = e.clientX; s.lastY = e.clientY;
+      s.dragMode = "node"; s.targetNodeId = hitId;
+      pressStartRef.current = { x: e.clientX, y: e.clientY, nodeId: hitId };
+      longPressTimerRef.current = window.setTimeout(() => {
+        const start = pressStartRef.current;
+        if (!start || start.nodeId !== hitId) return;
+        const targetIds = findRelatedNodeIds(hitId, allNodes, connections);
+        if (targetIds.length > 0) setRelatedFocus({ sourceId: hitId, targetIds });
+      }, 520);
+    } else {
+      s.isDragging = true; s.lastX = e.clientX; s.lastY = e.clientY;
+      s.dragMode = e.ctrlKey || e.button === 1 ? "pan" : "rotate";
+      s.targetNodeId = null;
+      clearLongPress();
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const s = state.current; setMousePos({ x: e.clientX, y: e.clientY });
+    const start = pressStartRef.current;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10 && !relatedFocus) {
+      clearLongPress();
+    }
     if (s.isDragging) {
       const dx = e.clientX - s.lastX, dy = e.clientY - s.lastY; s.lastX = e.clientX; s.lastY = e.clientY;
       if (s.dragMode === "rotate") { s.yawVel = dx * 0.005; s.pitchVel = dy * 0.005; s.yaw += s.yawVel; s.pitch += s.pitchVel; }
@@ -425,10 +554,10 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
   useEffect(() => {
     const upd = () => { setViewport({ width: window.innerWidth, height: window.innerHeight }); };
     upd(); window.addEventListener("resize", upd);
-    const stp = () => { state.current.isDragging = false; };
+    const stp = () => { state.current.isDragging = false; clearLongPress(); setRelatedFocus(null); };
     window.addEventListener("pointerup", stp);
     return () => { window.removeEventListener("resize", upd); window.removeEventListener("pointerup", stp); };
-  }, []);
+  }, [clearLongPress]);
 
   return (
     <div ref={containerRef} className={`fixed inset-0 w-full h-full ${isLight ? "bg-[#F8FAFC]" : "bg-[#020305]"} overflow-hidden touch-none cursor-none z-0 transition-colors duration-700`}>
@@ -452,17 +581,27 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
       <div className={`absolute bottom-10 left-10 w-8 h-8 border-b-2 border-l-2 ${isLight ? "border-slate-300" : "border-cyan-500/30"} pointer-events-none`} />
       <div className={`absolute bottom-10 right-10 w-8 h-8 border-b-2 border-r-2 ${isLight ? "border-slate-300" : "border-cyan-500/30"} pointer-events-none`} />
 
-      <div className={`pointer-events-auto absolute top-12 left-12 w-64 p-4 ${isLight ? "bg-white/80" : "bg-black/40"} backdrop-blur-md border ${isLight ? "border-slate-200" : "border-white/5"} shadow-2xl`}>
+      <div className={`pointer-events-auto absolute left-4 top-44 w-[min(16rem,calc(100vw-2rem))] p-4 sm:left-12 sm:top-36 ${isLight ? "bg-white/80" : "bg-black/40"} backdrop-blur-md border ${isLight ? "border-slate-200" : "border-white/5"} shadow-2xl`}>
          <HUD_Bracket pos="tl" isLight={isLight} /><HUD_Bracket pos="tr" isLight={isLight} /><HUD_Bracket pos="bl" isLight={isLight} /><HUD_Bracket pos="br" isLight={isLight} />
          <div className={`flex items-center gap-3 mb-4 border-b ${isLight ? "border-slate-100" : "border-white/5"} pb-2`}><Activity className={`h-3 w-3 ${isLight ? "text-purple-600" : "text-cyan-400"} animate-pulse`} /><div className={`text-[9px] font-black uppercase tracking-[0.3em] ${isLight ? "text-slate-800" : "text-cyan-400/80"}`}>NEURAL_SYNC</div></div>
          <div className={`space-y-1 font-mono text-[7px] ${isLight ? "text-slate-500" : "text-white/30"} uppercase tracking-widest`}>
             <div className="flex justify-between"><span>NODES:</span> <span className={isLight ? "text-purple-700" : "text-cyan-400"}>{allNodes.length}</span></div>
             <div className="flex justify-between"><span>LINKS:</span> <span className={isLight ? "text-purple-700" : "text-cyan-400"}>{connections.length}</span></div>
-            <div className="flex justify-between"><span>STATE:</span> <span className="text-green-500">NOMINAL</span></div>
+            <div className="flex justify-between"><span>STATE:</span> <span className="text-green-500">{teamMode ? "TEAM" : "NOMINAL"}</span></div>
          </div>
+         {teamMode && (
+           <div className={`mt-4 border-t ${isLight ? "border-slate-100" : "border-white/5"} pt-3 space-y-2`}>
+             {TEAM_MEMBERS.map((member, index) => (
+               <div key={member.name} className={`flex items-center justify-between text-[7px] font-black uppercase tracking-widest ${index === teamMemberIndex ? (isLight ? "text-slate-900" : "text-white") : (isLight ? "text-slate-400" : "text-white/30")}`}>
+                 <span className="flex items-center gap-2"><span className="h-2 w-2" style={{ backgroundColor: member.color }} /> Member_{member.name}</span>
+                 <span>{allNodes.filter((node) => getTeamMemberIndex(node) === index).length}</span>
+               </div>
+             ))}
+           </div>
+         )}
       </div>
 
-      <div className={`pointer-events-none absolute bottom-12 right-12 flex gap-10 items-center p-3 ${isLight ? "bg-white/80" : "bg-black/40"} backdrop-blur-md border ${isLight ? "border-slate-200" : "border-white/5"} text-[7px] font-black ${isLight ? "text-slate-500" : "text-white/30"} uppercase tracking-[0.4em]`}>
+      <div className={`pointer-events-none absolute bottom-4 right-4 hidden gap-6 items-center p-3 sm:flex lg:bottom-12 lg:right-12 lg:gap-10 ${isLight ? "bg-white/80" : "bg-black/40"} backdrop-blur-md border ${isLight ? "border-slate-200" : "border-white/5"} text-[7px] font-black ${isLight ? "text-slate-500" : "text-white/30"} uppercase tracking-[0.25em] lg:tracking-[0.4em]`}>
         <div className="flex items-center gap-2"><MousePointer2 className="h-2.5 w-2.5" /> [DRAG] Navigate</div>
         <div className="flex items-center gap-2"><Zap className={`h-2.5 w-2.5 ${isLight ? "text-purple-600" : "text-cyan-400"}`} /> Interaction_Active</div>
       </div>
@@ -475,7 +614,7 @@ export function MindMap({ allNodes, connections, onNodeSelect, onNodeZoom, selec
           </motion.div>
         )}
       </AnimatePresence>
-      <AddNodeDialog open={!!manualAdd} onOpenChange={o => { if (!o) setManualAdd(null); }} parentId={manualAdd?.parentId ?? null} level={manualAdd?.level ?? 1} />
+      <AddNodeDialog open={!!manualAdd} onOpenChange={o => { if (!o) setManualAdd(null); }} parentId={manualAdd?.parentId ?? null} level={manualAdd?.level ?? 1} teamMode={teamMode} teamMemberIndex={teamMemberIndex} />
     </div>
   );
 }

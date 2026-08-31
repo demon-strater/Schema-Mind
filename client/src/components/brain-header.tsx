@@ -1,5 +1,7 @@
-import { Brain, Zap, Network, LayoutGrid, GitBranch, Sparkles, Activity } from "lucide-react";
+import { Brain, Zap, Network, LayoutGrid, GitBranch, Sparkles, Activity, Users } from "lucide-react";
 import { motion } from "framer-motion";
+import { ThemeToggle } from "./theme-toggle";
+import { TEAM_MEMBERS } from "@/lib/team-mode";
 
 interface BrainHeaderProps {
   stats?: { totalNodes: number; levelCounts: Record<number, number>; connectionCount: number };
@@ -7,20 +9,24 @@ interface BrainHeaderProps {
   viewMode?: "mindmap" | "grid";
   onViewModeChange?: (mode: "mindmap" | "grid") => void;
   onOpenAnalyze?: () => void;
+  teamMode?: boolean;
+  teamMemberIndex?: number;
+  onTeamModeToggle?: () => void;
+  onTeamMemberChange?: (index: number) => void;
 }
 
-export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", onViewModeChange, onOpenAnalyze }: BrainHeaderProps) {
+export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", onViewModeChange, onOpenAnalyze, teamMode = false, teamMemberIndex = 0, onTeamModeToggle, onTeamMemberChange }: BrainHeaderProps) {
   const totalNodes = stats?.totalNodes ?? 0;
   const connectionCount = stats?.connectionCount ?? 0;
 
   return (
     <header className="fixed top-0 left-0 w-full z-[40] pointer-events-none" data-testid="brain-header">
-      <div className="max-w-[100vw] mx-auto px-6 py-6 flex justify-between items-start">
+      <div className="max-w-[100vw] mx-auto px-4 py-4 sm:px-6 sm:py-6 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
         {/* Left HUD: Title & Stats */}
-        <div className="flex flex-col gap-1 pointer-events-auto group">
+        <div className="flex min-w-0 flex-col gap-1 pointer-events-auto group">
           <div className="flex items-center gap-3">
              <div className="w-1 h-8 bg-current opacity-20" />
-             <div>
+             <div className="min-w-0">
                 <h1 className="text-2xl font-black uppercase tracking-[-0.02em] leading-none text-foreground" data-testid="text-app-title">
                   SchemaMind
                 </h1>
@@ -39,23 +45,23 @@ export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", on
         </div>
 
         {/* Right HUD: Controls */}
-        <div className="flex flex-col items-end gap-4 pointer-events-auto">
+        <div className="flex w-full flex-col items-stretch gap-3 pointer-events-auto sm:w-auto sm:items-end">
           {onOpenAnalyze && (
             <button
               onClick={onOpenAnalyze}
-              className="px-6 py-2 bg-foreground text-background text-[10px] font-black uppercase tracking-[0.2em] hover:scale-105 transition-transform active:scale-95"
+              className="min-h-9 px-4 sm:px-6 py-2 bg-foreground text-background text-[10px] font-black uppercase tracking-[0.16em] sm:tracking-[0.2em] hover:scale-[1.02] transition-transform active:scale-95 whitespace-nowrap"
               data-testid="button-open-analyze"
             >
               [ Run_AI_Analysis ]
             </button>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {onViewModeChange && (
-              <div className="flex border border-foreground/10 bg-background/40 backdrop-blur-xl">
+              <div className="flex min-h-9 shrink-0 border border-foreground/10 bg-background/40 backdrop-blur-xl">
                 <button
                   onClick={() => onViewModeChange("mindmap")}
-                  className={`px-4 py-2 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                  className={`px-4 py-2 text-[9px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
                     viewMode === "mindmap" ? "bg-foreground text-background" : "text-foreground/40 hover:text-foreground"
                   }`}
                   data-testid="button-view-mindmap"
@@ -64,7 +70,7 @@ export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", on
                 </button>
                 <button
                   onClick={() => onViewModeChange("grid")}
-                  className={`px-4 py-2 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                  className={`px-4 py-2 text-[9px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
                     viewMode === "grid" ? "bg-foreground text-background" : "text-foreground/40 hover:text-foreground"
                   }`}
                   data-testid="button-view-grid"
@@ -76,12 +82,44 @@ export function BrainHeader({ stats, onOpenConnections, viewMode = "mindmap", on
             
             <button
               onClick={onOpenConnections}
-              className="px-4 py-2 border border-foreground/10 bg-background/40 backdrop-blur-xl text-[9px] font-bold uppercase tracking-widest text-foreground/40 hover:text-foreground transition-all"
+              className="min-h-9 px-4 py-2 border border-foreground/10 bg-background/40 backdrop-blur-xl text-[9px] font-bold uppercase tracking-widest text-foreground/40 hover:text-foreground transition-all whitespace-nowrap"
               data-testid="button-open-connections"
             >
               Connections
             </button>
+            {onTeamModeToggle && (
+              <button
+                onClick={onTeamModeToggle}
+                className={`inline-flex min-h-9 items-center gap-2 px-4 py-2 border text-[9px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                  teamMode
+                    ? "border-amber-400/60 bg-amber-400/15 text-amber-500"
+                    : "border-foreground/10 bg-background/40 text-foreground/40 hover:text-foreground"
+                } backdrop-blur-xl`}
+                data-testid="button-team-mode"
+              >
+                <Users className="h-3.5 w-3.5" />
+                Team
+              </button>
+            )}
+            <ThemeToggle />
           </div>
+          {teamMode && onTeamMemberChange && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {TEAM_MEMBERS.map((member, index) => (
+                <button
+                  key={member.name}
+                  onClick={() => onTeamMemberChange(index)}
+                  className={`flex min-h-8 items-center gap-2 border px-3 py-1.5 text-[8px] font-black uppercase tracking-widest transition-all ${
+                    teamMemberIndex === index ? "border-foreground text-foreground" : "border-foreground/10 text-foreground/40"
+                  } bg-background/40 backdrop-blur-xl`}
+                  data-testid={`button-team-member-${member.name.toLowerCase()}`}
+                >
+                  <span className="h-2.5 w-2.5" style={{ backgroundColor: member.color }} />
+                  Member_{member.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
